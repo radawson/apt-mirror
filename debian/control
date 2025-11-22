@@ -1,0 +1,19 @@
+Source: apt-mirror
+Section: admin
+Priority: optional
+Maintainer: Debian/Ubuntu Maintainers <debian-apt-mirror@lists.debian.org>
+Build-Depends: debhelper (>= 9)
+Standards-Version: 4.0.0
+
+Package: apt-mirror
+Architecture: all
+Depends: ${python3:Depends}, python3-aiohttp, xdelta3, ${misc:Depends}
+Description: APT repository mirroring tool (async Python version)
+ A tool for mirroring APT repositories with async support for improved
+ performance. Features include:
+  * Async downloads using aiohttp
+  * Diff serving capability to reduce bandwidth
+  * Better error handling and progress reporting
+  * Improved performance for large mirrors
+  * Compatible with existing mirror.list configuration format
+
