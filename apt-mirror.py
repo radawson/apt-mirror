@@ -407,10 +407,18 @@ class AptMirror:
         connector = aiohttp.TCPConnector(limit=self.config.nthreads * 2)
         timeout = aiohttp.ClientTimeout(total=3600, connect=30)
         
-        # Setup proxy
-        proxy = None
+        # Setup proxy with authentication if needed
+        self.proxy = None
+        self.proxy_auth = None
         if self.config.use_proxy in ("yes", "on"):
-            proxy = self.config.http_proxy or self.config.https_proxy
+            self.proxy = self.config.http_proxy or self.config.https_proxy
+            
+            # Setup proxy authentication if credentials are provided
+            if self.proxy and self.config.proxy_user and self.config.proxy_password:
+                self.proxy_auth = aiohttp.BasicAuth(
+                    self.config.proxy_user,
+                    self.config.proxy_password
+                )
 
         self.session = aiohttp.ClientSession(
             connector=connector,
@@ -630,6 +638,8 @@ class AptMirror:
                         async with self.session.get(
                             task.url,
                             headers=headers,
+                            proxy=self.proxy,
+                            proxy_auth=self.proxy_auth,
                             ssl=not self.config.no_check_certificate
                         ) as response:
                             response.raise_for_status()

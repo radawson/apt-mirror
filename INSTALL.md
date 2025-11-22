@@ -119,6 +119,13 @@ set verify_checksums 1
 # Resume partial downloads
 set resume_partial_downloads 1
 
+# Proxy configuration (for authenticated proxies)
+set use_proxy on
+set http_proxy http://proxy.example.com:3128
+set https_proxy http://proxy.example.com:3128
+set proxy_user your_proxy_username
+set proxy_password your_proxy_password
+
 # Unlink option: For hardlinked directories support. When enabled, unlinks destination files before copying if they differ. This is necessary when using hardlinks - you cannot overwrite a hardlinked file directly, you must unlink it first. (Note: wget --unlink is no longer used since we use async downloads, but this option still applies to file copying operations)
 set unlink 1
 ```

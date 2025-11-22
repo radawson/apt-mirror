@@ -10,11 +10,13 @@ set limit_rate        100m
 set _tilde            0
 set unlink            1
 set use_proxy         off
-set http_proxy        127.0.0.1:3128
-set proxy_user        user
-set proxy_password    password
+# Proxy settings (only used if use_proxy is set to "on" or "yes")
+# Uncomment and configure if you need to use a proxy server
+#set http_proxy        127.0.0.1:3128
+#set https_proxy       127.0.0.1:3128
+#set proxy_user        your_proxy_user
+#set proxy_password    your_proxy_password
 
-# New features in 0.6.0
 # Enable diff generation to reduce bandwidth usage
 set enable_diffs      1
 set diff_algorithm    xdelta3

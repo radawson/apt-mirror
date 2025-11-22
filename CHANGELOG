@@ -4,6 +4,7 @@
   * Implement automatic retry with exponential backoff for failed downloads
   * Add resume support for partial downloads using HTTP Range requests
   * Add optional checksum verification after downloads
+  * Add proxy authentication support with BasicAuth (proxy_user/proxy_password)
   * Improve progress reporting with real-time speed, ETA, and percentage
   * Enhance error handling with detailed error messages and context
   * Improve postmirror script execution with better error checking (fixes #196)
