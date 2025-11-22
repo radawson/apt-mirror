@@ -51,12 +51,13 @@ set run_postmirror    0
 set nthreads          20
 set limit_rate        100m
 set _tilde            0
-# Use --unlink with wget (for use with hardlinked directories)
 set unlink            1
 set use_proxy         off
 set http_proxy        127.0.0.1:3128
 set proxy_user        user
 set proxy_password    password
+set enable_diffs      1
+set diff_algorithm    xdelta3
 
 deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
@@ -108,6 +109,9 @@ set verify_checksums 1
 
 # Resume partial downloads
 set resume_partial_downloads 1
+
+# Unlink option: For hardlinked directories support. When enabled, unlinks destination files before copying if they differ. This is necessary when using hardlinks - you cannot overwrite a hardlinked file directly, you must unlink it first. (Note: wget --unlink is no longer used since we use async downloads, but this option still applies to file copying operations)
+set unlink 1
 ```
 
 ## Verification

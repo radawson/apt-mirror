@@ -60,14 +60,31 @@ set base_path         /var/spool/apt-mirror
 set mirror_path       $base_path/mirror
 set skel_path         $base_path/skel
 set var_path          $base_path/var
+set postmirror_script $var_path/postmirror.sh
 set defaultarch       amd64
+set run_postmirror    0
 set nthreads          20
 set limit_rate        100m
+set _tilde            0
+set unlink            1
+set use_proxy         off
+set http_proxy        127.0.0.1:3128
+set proxy_user        user
+set proxy_password    password
 set enable_diffs      1
 set diff_algorithm    xdelta3
 
-deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
+
+#deb-src http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+#deb-src http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+#deb-src http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+#deb-src http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
+
+clean http://archive.ubuntu.com/ubuntu
 ```
 
 ### 4. Run
@@ -81,21 +98,23 @@ Or with the default config:
 sudo apt-mirror
 ```
 
-## New Features in 0.6.0
+## New Configuration Options
 
-### Diff Serving
-Generate binary diffs between file versions to reduce bandwidth:
+Add these to your `mirror.list` for new features:
 
 ```
+# Enable diff generation
 set enable_diffs 1
+
+# Choose diff algorithm (xdelta3, bsdiff, or rsync)
 set diff_algorithm xdelta3
+
+# Where to store diffs
 set diff_storage_path $base_path/diffs
+
+# Only create diffs if they're smaller than 50% of original
 set max_diff_size_ratio 0.5
-```
 
-### Enhanced Configuration Options
-
-```
 # Retry configuration
 set retry_attempts 5
 set retry_delay 2.0
@@ -105,6 +124,9 @@ set verify_checksums 1
 
 # Resume partial downloads
 set resume_partial_downloads 1
+
+# Unlink option: For hardlinked directories support. When enabled, unlinks destination files before copying if they differ. This is necessary when using hardlinks - you cannot overwrite a hardlinked file directly, you must unlink it first. (Note: wget --unlink is no longer used since we use async downloads, but this option still applies to file copying operations)
+set unlink 1
 ```
 
 ## Verification
@@ -189,3 +211,4 @@ See [LICENSE](LICENSE) file for details.
 
 - Dmitry N. Hramtsov <hdn@nsu.ru>
 - Brandon Holtsclaw <me@brandonholtsclaw.com>
+- Richard Dawson <dawsonra@clockworx.org>

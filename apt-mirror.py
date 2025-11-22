@@ -3,21 +3,17 @@
 apt-mirror - async apt sources mirroring tool
 
 A modern async implementation of apt-mirror with enhanced features:
-- Async downloads using aiohttp
-- Diff serving capability
-- Better error handling and progress reporting
-- Improved performance for large mirrors
-"""
 
-#!/usr/bin/env python3
-"""
-apt-mirror - async apt sources mirroring tool
+* Async downloads using aiohttp
+* Diff serving capability
+* Better error handling and progress reporting
+* Improved performance for large mirrors
 
 Dependencies (all available in Debian/Ubuntu repos):
-- python3 (standard library: asyncio, hashlib, json, gzip, bz2, lzma, etc.)
-- python3-aiohttp (apt package)
-- xdelta3 (apt package, for diff generation)
-- wget or curl (for fallback, already standard)
+
+* python3 (standard library: asyncio, hashlib, json, gzip, bz2, lzma, etc.)
+* python3-aiohttp (apt package)
+* xdelta3 (apt package, for diff generation)
 
 All imports are from standard library except aiohttp.
 """
@@ -52,7 +48,12 @@ except ImportError:
 
 
 class HashType(Enum):
-    """Supported hash types in order of strength"""
+    """Supported hash types in order of strength.
+    
+    Hash types are ordered from strongest to weakest for security
+    and integrity verification purposes. Used when verifying file
+    checksums and when downloading files via by-hash directories.
+    """
     SHA512 = "SHA512"
     SHA256 = "SHA256"
     SHA1 = "SHA1"
@@ -61,7 +62,38 @@ class HashType(Enum):
 
 @dataclass
 class Config:
-    """Configuration settings"""
+    """Configuration settings for apt-mirror.
+    
+    All configuration values can be set in the mirror.list file using
+    the ``set`` directive. Variable substitution is supported using
+    ``$variable_name`` syntax. For example, ``$base_path`` will be
+    replaced with the value of ``base_path``.
+    
+    :param base_path: Base directory for all mirror operations
+    :type base_path: str
+    :param mirror_path: Directory where mirrored files are stored
+    :type mirror_path: str
+    :param skel_path: Temporary directory for downloads
+    :type skel_path: str
+    :param var_path: Directory for logs and metadata
+    :type var_path: str
+    :param defaultarch: Default architecture (auto-detected if empty)
+    :type defaultarch: str
+    :param nthreads: Number of concurrent download threads
+    :type nthreads: int
+    :param limit_rate: Download rate limit (e.g., "100m" for 100MB/s)
+    :type limit_rate: str
+    :param enable_diffs: Enable diff generation for changed files
+    :type enable_diffs: bool
+    :param diff_algorithm: Algorithm to use for diffs (xdelta3, bsdiff, rsync)
+    :type diff_algorithm: str
+    :param retry_attempts: Number of retry attempts for failed downloads
+    :type retry_attempts: int
+    :param verify_checksums: Verify file checksums after download
+    :type verify_checksums: bool
+    :param resume_partial_downloads: Resume interrupted downloads
+    :type resume_partial_downloads: bool
+    """
     base_path: str = "/var/spool/apt-mirror"
     mirror_path: str = "$base_path/mirror"
     skel_path: str = "$base_path/skel"
@@ -75,7 +107,7 @@ class Config:
     run_postmirror: bool = True
     auth_no_challenge: bool = False
     no_check_certificate: bool = False
-    unlink: bool = False
+    unlink: bool = False  # Unlink destination files before copying if they differ (for hardlink support)
     postmirror_script: str = "$var_path/postmirror.sh"
     cleanscript: str = "$var_path/clean.sh"
     use_proxy: str = "off"
@@ -98,7 +130,16 @@ class Config:
     resume_partial_downloads: bool = True
 
     def __post_init__(self):
-        """Resolve variable substitutions"""
+        """Resolve variable substitutions in configuration values.
+        
+        Auto-detects default architecture if not specified by running
+        ``dpkg --print-architecture``. Then resolves all variable
+        references (e.g., ``$base_path``) in config values by recursively
+        substituting variable names with their actual values.
+        
+        :raises subprocess.CalledProcessError: If dpkg command fails
+        :raises FileNotFoundError: If dpkg command is not found
+        """
         if not self.defaultarch:
             try:
                 result = subprocess.run(
@@ -117,7 +158,17 @@ class Config:
                 setattr(self, key, self._resolve_vars(value))
 
     def _resolve_vars(self, value: str) -> str:
-        """Resolve variable substitutions in config values"""
+        """Resolve variable substitutions in config values.
+        
+        Recursively replaces variable references like ``$base_path`` with
+        their actual values from the config. Prevents infinite loops by
+        limiting substitution depth to 16 iterations.
+        
+        :param value: String potentially containing variable references
+        :type value: str
+        :returns: String with variables resolved to actual values
+        :rtype: str
+        """
         count = 16
         while "$" in value and count > 0:
             value = value.replace("$base_path", self.base_path)
@@ -130,7 +181,26 @@ class Config:
 
 @dataclass
 class DownloadTask:
-    """Represents a file to download"""
+    """Represents a file to download.
+    
+    Contains all information needed to download a single file from a
+    repository, including URL, size, checksums, and target paths.
+    
+    :param url: URL of the file to download
+    :type url: str
+    :param size: Expected file size in bytes
+    :type size: int
+    :param hash_type: Type of hash for verification (SHA512, SHA256, etc.)
+    :type hash_type: Optional[HashType]
+    :param hashsum: Hash value for verification
+    :type hashsum: Optional[str]
+    :param canonical_path: Standard path for the file in the mirror
+    :type canonical_path: Optional[str]
+    :param hash_path: Path when downloaded via by-hash directory
+    :type hash_path: Optional[str]
+    :param stage: Download stage (release, index, or archive)
+    :type stage: str
+    """
     url: str
     size: int = 0
     hash_type: Optional[HashType] = None
@@ -142,7 +212,23 @@ class DownloadTask:
 
 @dataclass
 class FileVersion:
-    """Tracks file versions for diff generation"""
+    """Tracks file versions for diff generation.
+    
+    Stores metadata about a file version to enable diff generation
+    between versions. Used to determine when files have changed and
+    to generate binary diffs for bandwidth savings.
+    
+    :param path: File path in the mirror
+    :type path: str
+    :param size: File size in bytes
+    :type size: int
+    :param hash: SHA256 hash of file contents
+    :type hash: str
+    :param timestamp: Modification timestamp
+    :type timestamp: float
+    :param previous_version: Path to previous version (if available)
+    :type previous_version: Optional[str]
+    """
     path: str
     size: int
     hash: str
@@ -151,8 +237,23 @@ class FileVersion:
 
 
 class ProgressTracker:
-    """Tracks download progress"""
+    """Tracks download progress and displays real-time statistics.
+    
+    Provides progress information including percentage complete, download
+    speed, and estimated time remaining. Updates are displayed at regular
+    intervals to avoid overwhelming the console.
+    """
     def __init__(self, total_files: int, total_bytes: int):
+        """Initialize progress tracker.
+        
+        Sets up tracking for the total number of files and bytes to
+        download, initializing counters and timers.
+        
+        :param total_files: Total number of files to download
+        :type total_files: int
+        :param total_bytes: Total number of bytes to download
+        :type total_bytes: int
+        """
         self.total_files = total_files
         self.total_bytes = total_bytes
         self.completed_files = 0
@@ -163,7 +264,16 @@ class ProgressTracker:
         self.update_interval = 1.0
 
     def update(self, bytes_downloaded: int, success: bool = True):
-        """Update progress"""
+        """Update progress with downloaded bytes.
+        
+        Increments the progress counters and optionally displays
+        progress information if the update interval has elapsed.
+        
+        :param bytes_downloaded: Number of bytes downloaded
+        :type bytes_downloaded: int
+        :param success: Whether the download succeeded
+        :type success: bool
+        """
         self.completed_bytes += bytes_downloaded
         if success:
             self.completed_files += 1
@@ -176,7 +286,12 @@ class ProgressTracker:
             self.last_update = now
 
     def _print_progress(self):
-        """Print progress information"""
+        """Print progress information.
+        
+        Displays current progress including percentage, file count,
+        download speed, and estimated time remaining. Updates are
+        displayed on the same line to avoid console spam.
+        """
         elapsed = time.time() - self.start_time
         percent = (self.completed_bytes / self.total_bytes * 100) if self.total_bytes > 0 else 0
         speed = self.completed_bytes / elapsed if elapsed > 0 else 0
@@ -188,7 +303,11 @@ class ProgressTracker:
               f"ETA: {self._format_time(remaining)}", end="", flush=True)
 
     def finish(self):
-        """Print final progress"""
+        """Print final progress summary.
+        
+        Displays total time elapsed and any failed downloads.
+        Should be called when all downloads are complete.
+        """
         print()  # New line after progress
         elapsed = time.time() - self.start_time
         print(f"Completed in {self._format_time(elapsed)}")
@@ -197,7 +316,16 @@ class ProgressTracker:
 
     @staticmethod
     def _format_bytes(bytes_val: int) -> str:
-        """Format bytes to human readable"""
+        """Format bytes to human readable format.
+        
+        Converts a byte count to a human-readable string with appropriate
+        unit (B, KiB, MiB, GiB, TiB, PiB).
+        
+        :param bytes_val: Number of bytes
+        :type bytes_val: int
+        :returns: Formatted string with unit
+        :rtype: str
+        """
         for unit in ['B', 'KiB', 'MiB', 'GiB', 'TiB']:
             if bytes_val < 1024.0:
                 return f"{bytes_val:.2f} {unit}"
@@ -206,7 +334,16 @@ class ProgressTracker:
 
     @staticmethod
     def _format_time(seconds: float) -> str:
-        """Format seconds to human readable"""
+        """Format seconds to human readable format.
+        
+        Converts a time duration in seconds to a human-readable string
+        (e.g., "1h 23m", "45m 30s", "15s").
+        
+        :param seconds: Duration in seconds
+        :type seconds: float
+        :returns: Formatted time string
+        :rtype: str
+        """
         if seconds < 60:
             return f"{int(seconds)}s"
         elif seconds < 3600:
@@ -218,9 +355,23 @@ class ProgressTracker:
 
 
 class AptMirror:
-    """Main apt-mirror class with async support"""
+    """Main apt-mirror class with async support.
+    
+    Handles all aspects of mirroring APT repositories including:
+    downloading, parsing metadata, file management, and diff generation.
+    Uses async/await for concurrent operations and improved performance.
+    """
 
     def __init__(self, config_file: str = "/etc/apt/mirror.list"):
+        """Initialize apt-mirror instance.
+        
+        Creates a new AptMirror instance with the specified configuration
+        file. The configuration will be parsed when ``parse_config()`` is
+        called.
+        
+        :param config_file: Path to mirror.list configuration file
+        :type config_file: str
+        """
         self.config_file = config_file
         self.config = Config()
         self.binaries: List[Tuple[str, str, str, List[str]]] = []  # (arch, uri, distribution, components)
@@ -236,7 +387,15 @@ class AptMirror:
         self.lock_file: Optional[Path] = None
 
     async def initialize(self):
-        """Initialize async resources"""
+        """Initialize async resources and create required directories.
+        
+        Sets up aiohttp session with appropriate timeouts and connection
+        limits, creates the required directory structure (mirror, skel,
+        var, and diffs if enabled), and acquires a lock file to prevent
+        concurrent execution of multiple apt-mirror instances.
+        
+        :raises RuntimeError: If apt-mirror is already running (lock file exists)
+        """
         # Create directories
         for path in [self.config.mirror_path, self.config.skel_path, self.config.var_path]:
             Path(path).mkdir(parents=True, exist_ok=True)
@@ -269,14 +428,31 @@ class AptMirror:
         self.lock_file.touch()
 
     async def cleanup(self):
-        """Cleanup async resources"""
+        """Cleanup async resources and release lock.
+        
+        Closes the aiohttp session to free network resources and removes
+        the lock file to allow other instances to run. Should always be
+        called in a finally block to ensure cleanup happens even on errors.
+        """
         if self.session:
             await self.session.close()
         if self.lock_file and self.lock_file.exists():
             self.lock_file.unlink()
 
     def parse_config(self):
-        """Parse mirror.list configuration file"""
+        """Parse mirror.list configuration file.
+        
+        Reads and parses the configuration file line by line, extracting:
+        - Configuration settings (set directives)
+        - Binary repository definitions (deb lines)
+        - Source repository definitions (deb-src lines)
+        - Cleanup directives (clean and skip-clean lines)
+        
+        Supports variable substitution and handles both standard and flat
+        repository formats.
+        
+        :raises FileNotFoundError: If config file doesn't exist
+        """
         if not os.path.exists(self.config_file):
             raise FileNotFoundError(f"Config file not found: {self.config_file}")
 
@@ -332,7 +508,16 @@ class AptMirror:
                 print(f"Warning: Unrecognized line {line_num}: {line}")
 
     def _set_config(self, key: str, value: str):
-        """Set configuration value"""
+        """Set configuration value.
+        
+        Sets a configuration value, handling type conversion for boolean
+        and integer values. Strips quotes from string values.
+        
+        :param key: Configuration key name
+        :type key: str
+        :param value: Configuration value (will be converted to appropriate type)
+        :type value: str
+        """
         # Handle boolean values
         if value.lower() in ('1', 'yes', 'on', 'true'):
             bool_value = True
@@ -354,7 +539,16 @@ class AptMirror:
             print(f"Warning: Unknown config key: {key}")
 
     def _sanitize_uri(self, uri: str) -> str:
-        """Sanitize URI for filesystem use"""
+        """Sanitize URI for filesystem use.
+        
+        Removes protocol prefix and authentication information from URI
+        to create a safe filesystem path. Handles tilde encoding if enabled.
+        
+        :param uri: URI to sanitize
+        :type uri: str
+        :returns: Sanitized path suitable for filesystem use
+        :rtype: str
+        """
         uri = re.sub(r'^\w+://', '', uri)
         uri = re.sub(r'^[^@]+@', '', uri)  # Remove auth
         if self.config._tilde:
@@ -362,7 +556,16 @@ class AptMirror:
         return uri
 
     def _remove_double_slashes(self, path: str) -> str:
-        """Remove double slashes and normalize path"""
+        """Remove double slashes and normalize path.
+        
+        Removes duplicate slashes from paths while preserving protocol
+        prefixes (e.g., http://). Handles tilde encoding if enabled.
+        
+        :param path: Path to normalize
+        :type path: str
+        :returns: Normalized path
+        :rtype: str
+        """
         path = re.sub(r'/+', '/', path)
         path = re.sub(r'^(\w+://)', r'\1', path)  # Preserve protocol
         if self.config._tilde:
@@ -374,7 +577,21 @@ class AptMirror:
         task: DownloadTask,
         progress: Optional[ProgressTracker] = None
     ) -> bool:
-        """Download a single file asynchronously"""
+        """Download a single file asynchronously.
+        
+        Downloads a file with retry logic, resume support for partial
+        downloads, and optional checksum verification. Uses a semaphore
+        to limit concurrent downloads according to the nthreads setting.
+        Automatically retries failed downloads with exponential backoff.
+        
+        :param task: DownloadTask containing URL and metadata
+        :type task: DownloadTask
+        :param progress: Optional progress tracker for reporting
+        :type progress: Optional[ProgressTracker]
+        :returns: True if download succeeded, False otherwise
+        :rtype: bool
+        :raises ValueError: If file size mismatch or checksum verification fails
+        """
         async with self.semaphore:
             try:
                 # Determine local path
@@ -454,7 +671,20 @@ class AptMirror:
                 return False
 
     async def _verify_checksum(self, filepath: Path, hash_type: HashType, expected: str) -> bool:
-        """Verify file checksum"""
+        """Verify file checksum.
+        
+        Calculates the hash of a file using the specified hash algorithm
+        and compares it with the expected value.
+        
+        :param filepath: Path to file to verify
+        :type filepath: Path
+        :param hash_type: Type of hash algorithm to use
+        :type hash_type: HashType
+        :param expected: Expected hash value (hex string)
+        :type expected: str
+        :returns: True if hash matches, False otherwise
+        :rtype: bool
+        """
         hash_obj = {
             HashType.MD5Sum: hashlib.md5(),
             HashType.SHA1: hashlib.sha1(),
@@ -471,7 +701,18 @@ class AptMirror:
         return await asyncio.to_thread(read_and_hash)
 
     async def download_batch(self, tasks: List[DownloadTask], stage: str):
-        """Download a batch of files"""
+        """Download a batch of files concurrently.
+        
+        Creates concurrent download tasks for all files in the batch and
+        waits for them to complete. Displays progress information including
+        start/end times and handles copying of hashsum files to canonical
+        locations after downloads complete.
+        
+        :param tasks: List of DownloadTask objects to download
+        :type tasks: List[DownloadTask]
+        :param stage: Download stage name (release, index, archive)
+        :type stage: str
+        """
         print(f"Downloading {len(tasks)} {stage} files using {self.config.nthreads} threads...")
         
         total_bytes = sum(t.size for t in tasks)
@@ -514,7 +755,22 @@ class AptMirror:
     # ... (continuing with more methods)
 
     async def run(self):
-        """Main execution flow"""
+        """Main execution flow.
+        
+        Orchestrates the complete mirroring process in the correct order:
+        
+        1. Initialize resources and parse configuration
+        2. Download Release files
+        3. Download metadata (Packages, Sources, etc.)
+        4. Process indexes and queue package downloads
+        5. Download packages
+        6. Copy skel to mirror
+        7. Generate diffs (if enabled)
+        8. Cleanup old files
+        9. Run postmirror script
+        
+        Ensures proper cleanup even if errors occur during execution.
+        """
         try:
             await self.initialize()
             self.parse_config()
@@ -556,7 +812,23 @@ class AptMirror:
         hash_type: Optional[HashType] = None,
         hashsum: Optional[str] = None
     ):
-        """Add URL to download queue with hash handling"""
+        """Add URL to download queue with hash handling.
+        
+        Adds a file to the download queue, handling by-hash downloads
+        when hash information is provided. Tracks relationships between
+        hashsum files and canonical locations for proper file management.
+        
+        :param url: URL of file to download
+        :type url: str
+        :param size: Expected file size in bytes
+        :type size: int
+        :param strongest_hash: Strongest available hash type
+        :type strongest_hash: Optional[HashType]
+        :param hash_type: Specific hash type for this file
+        :type hash_type: Optional[HashType]
+        :param hashsum: Hash value for verification
+        :type hashsum: Optional[str]
+        """
         url = self._remove_double_slashes(url)
         canonical_path = self._sanitize_uri(url)
         self.skip_clean.add(canonical_path)
@@ -627,7 +899,17 @@ class AptMirror:
             self.release_urls = release_urls
 
     async def _parse_release_file(self, release_path: Path) -> Dict:
-        """Parse Release file and extract metadata"""
+        """Parse Release file and extract metadata.
+        
+        Reads and parses a Release or InRelease file to extract information
+        about available files, their checksums, and whether by-hash downloads
+        are supported.
+        
+        :param release_path: Path to Release file directory
+        :type release_path: Path
+        :returns: Dictionary containing parsed release information
+        :rtype: Dict
+        """
         # Try InRelease first, then Release
         for filename in ["InRelease", "Release"]:
             filepath = release_path.parent / filename
@@ -641,7 +923,16 @@ class AptMirror:
         return {}
 
     def _parse_release_content(self, content: str) -> Dict:
-        """Parse Release file content"""
+        """Parse Release file content.
+        
+        Parses the text content of a Release file to extract hash sections,
+        file listings, and Acquire-By-Hash settings.
+        
+        :param content: Text content of Release file
+        :type content: str
+        :returns: Dictionary containing parsed release information
+        :rtype: Dict
+        """
         result = {
             'hashes': {},
             'acquire_by_hash': False,
@@ -806,7 +1097,19 @@ class AptMirror:
         return filepath
 
     async def _process_packages_index(self, uri: str, index_path: Path, mirror_base: Path):
-        """Process Packages index file"""
+        """Process Packages index file.
+        
+        Parses a Packages index file to extract package information and
+        queue package files for download. Checks if files need updating
+        by comparing sizes.
+        
+        :param uri: Base URI of the repository
+        :type uri: str
+        :param index_path: Path to Packages index file
+        :type index_path: Path
+        :param mirror_base: Base path of mirror directory
+        :type mirror_base: Path
+        """
         # Decompress if needed
         decompressed = await self._decompress_file(index_path)
         if not decompressed or not decompressed.exists():
@@ -873,7 +1176,12 @@ class AptMirror:
         print()  # New line
 
     async def _download_packages(self):
-        """Download package files"""
+        """Download package files.
+        
+        Downloads all queued package files (deb packages, source tarballs,
+        etc.) that were identified during index processing. Displays total
+        size to be downloaded before starting.
+        """
         if self.download_queue:
             total_bytes = sum(t.size for t in self.download_queue)
             print(f"{self._format_bytes(total_bytes)} will be downloaded into archive.")
@@ -888,20 +1196,69 @@ class AptMirror:
         return f"{bytes_val:.2f} PiB"
 
     async def _copy_file(self, source: Path, dest: Path):
-        """Copy file preserving metadata"""
+        """Copy file preserving metadata.
+        
+        Copies a file from source to destination, preserving file metadata
+        (timestamps, permissions). Attempts to create a hardlink first to
+        save disk space, falling back to a regular copy if hardlinking fails
+        (e.g., different filesystem).
+        
+        The unlink option is for hardlink support: when files are hardlinked
+        (multiple directory entries pointing to the same inode), you cannot
+        simply overwrite one - you must unlink it first, then create a new file.
+        This prevents all hardlinked copies from being updated simultaneously.
+        
+        :param source: Source file path
+        :type source: Path
+        :param dest: Destination file path
+        :type dest: Path
+        """
         if not source.exists():
             return
         
         dest.parent.mkdir(parents=True, exist_ok=True)
         
-        if self.config.unlink and dest.exists():
-            if source.stat().st_size != dest.stat().st_size:
-                dest.unlink()
+        # Check if files are identical (same stat info means same file or already copied)
+        if dest.exists():
+            source_stat = source.stat()
+            dest_stat = dest.stat()
+            
+            # Compare stat info - if identical, files are the same
+            if (source_stat.st_size == dest_stat.st_size and
+                source_stat.st_mtime == dest_stat.st_mtime and
+                source_stat.st_mode == dest_stat.st_mode):
+                return  # Already copied and identical
+            
+            # If unlink is enabled and files differ, unlink destination first
+            # This is important for hardlinked files - you can't overwrite a hardlink
+            if self.config.unlink:
+                # Compare file contents (like Perl's File::Compare)
+                def files_differ():
+                    if source_stat.st_size != dest_stat.st_size:
+                        return True
+                    # Compare file contents
+                    with open(source, 'rb') as f1, open(dest, 'rb') as f2:
+                        while True:
+                            chunk1 = f1.read(8192)
+                            chunk2 = f2.read(8192)
+                            if chunk1 != chunk2:
+                                return True
+                            if not chunk1:  # Both files ended
+                                return False
+                
+                if await asyncio.to_thread(files_differ):
+                    dest.unlink()
         
-        if dest.exists() and source.stat() == dest.stat():
-            return  # Already copied
-        
-        shutil.copy2(source, dest)
+        # Copy file (will create hardlink if possible, otherwise regular copy)
+        # Try to create hardlink first, fall back to copy
+        try:
+            # Try to create hardlink (saves space if both files are on same filesystem)
+            os.link(source, dest)
+            # Copy metadata
+            shutil.copystat(source, dest)
+        except (OSError, AttributeError):
+            # Hardlink failed (different filesystem or other reason), use regular copy
+            shutil.copy2(source, dest)
 
     async def _copy_skel_to_mirror(self):
         """Copy files from skel to mirror directory"""
@@ -921,7 +1278,15 @@ class AptMirror:
                     await self._copy_file(source, target_dest)
 
     async def _generate_diffs(self):
-        """Generate diffs for changed files"""
+        """Generate diffs for changed files.
+        
+        Compares current file versions with previous versions stored in the
+        file_versions.json database. For files that have changed, generates
+        binary diffs using the configured algorithm (xdelta3, bsdiff, or rsync).
+        Only creates diffs if they're smaller than the configured threshold
+        (max_diff_size_ratio) to avoid creating diffs that are larger than
+        the original files. Updates the version database with new file hashes.
+        """
         if not self.config.enable_diffs:
             return
         
@@ -992,7 +1357,23 @@ class AptMirror:
         print(f"Generated {diff_count} diffs")
 
     async def _create_diff(self, old_file: Path, new_file: Path, diff_path: Path) -> bool:
-        """Create a diff between two files"""
+        """Create a diff between two files.
+        
+        Uses the configured diff algorithm (xdelta3, bsdiff, or rsync) to
+        generate a binary diff between the old and new file versions. Only
+        returns True if the diff was successfully created and is smaller than
+        the configured threshold (max_diff_size_ratio). If the diff is too
+        large, it is deleted and False is returned.
+        
+        :param old_file: Path to old version of file
+        :type old_file: Path
+        :param new_file: Path to new version of file
+        :type new_file: Path
+        :param diff_path: Path where diff should be stored
+        :type diff_path: Path
+        :returns: True if diff was created and is smaller than threshold, False otherwise
+        :rtype: bool
+        """
         try:
             if self.config.diff_algorithm == "xdelta3":
                 # Use xdelta3 if available
@@ -1056,7 +1437,15 @@ class AptMirror:
         print(f"Cleanup script would be generated at {script_path}")
 
     async def _run_postmirror(self):
-        """Run postmirror script"""
+        """Run postmirror script.
+        
+        Executes the postmirror script specified in configuration after
+        all mirroring operations are complete. Checks if the script exists,
+        is readable, and is executable before running. Falls back to
+        executing with /bin/sh if the script is not directly executable.
+        
+        :raises subprocess.CalledProcessError: If script execution fails
+        """
         # Store in variable to avoid multiple lookups (PR #196 improvement)
         script_path = self.config.postmirror_script
         
@@ -1086,7 +1475,12 @@ class AptMirror:
 
 
 async def main():
-    """Main entry point"""
+    """Main entry point for apt-mirror.
+    
+    Parses command line arguments to get the configuration file path
+    (defaults to /etc/apt/mirror.list), creates an AptMirror instance,
+    and runs the complete mirroring process.
+    """
     parser = argparse.ArgumentParser(description='Async apt-mirror')
     parser.add_argument('config_file', nargs='?', default='/etc/apt/mirror.list',
                        help='Path to mirror.list config file')
