@@ -40,13 +40,14 @@ sudo nano /etc/apt/mirror.list
 ```
 
 Example configuration:
-```
+
+```bash
 set base_path         /var/spool/apt-mirror
 set mirror_path       $base_path/mirror
 set skel_path         $base_path/skel
 set var_path          $base_path/var
 set postmirror_script $var_path/postmirror.sh
-set defaultarch       i386
+set defaultarch       amd64
 set run_postmirror    0
 set nthreads          20
 set limit_rate        100m
@@ -58,15 +59,23 @@ set proxy_user        user
 set proxy_password    password
 set enable_diffs      1
 set diff_algorithm    xdelta3
+set diff_storage_path $base_path/diffs
+set max_diff_size_ratio 0.5
+set retry_attempts    5
+set retry_delay       2.0
+set verify_checksums  1
+set resume_partial_downloads 1
 
+# Ubuntu 24.04 LTS (Noble Numbat) repositories
 deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
 
+# Source repositories (optional, uncomment if needed)
 #deb-src http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
-#deb-src http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 #deb-src http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+#deb-src http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 #deb-src http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
 
 clean http://archive.ubuntu.com/ubuntu
