@@ -382,6 +382,9 @@ class AptMirror:
         self.hashsum_to_files: Dict[str, List[str]] = defaultdict(list)
         self.file_to_hashsums: Dict[str, List[str]] = defaultdict(list)
         self.file_versions: Dict[str, FileVersion] = {}
+        # Store checksums from Release files for metadata files (Packages, Sources, etc.)
+        # Key: canonical path, Value: (hash_type, hashsum, size)
+        self.metadata_checksums: Dict[str, Tuple[HashType, str, int]] = {}
         self.session: Optional[aiohttp.ClientSession] = None
         self.semaphore: Optional[asyncio.Semaphore] = None
         self.lock_file: Optional[Path] = None
@@ -614,14 +617,52 @@ class AptMirror:
                 # Create directory
                 local_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # Check if file exists and is correct size
+                # Check if file exists in skel_path or mirror_path (#198)
+                mirror_path = None
+                if task.canonical_path:
+                    mirror_path = Path(self.config.mirror_path) / task.canonical_path
+                
+                # Check if file already exists with correct checksum
+                if mirror_path and mirror_path.exists():
+                    # File exists in mirror, verify it's correct
+                    if task.hashsum and self.config.verify_checksums:
+                        # Use checksum verification for definitive check
+                        if await self._verify_checksum(mirror_path, task.hash_type, task.hashsum):
+                            # File is correct, copy from mirror to skel if needed
+                            if not local_path.exists() or not local_path.samefile(mirror_path):
+                                local_path.parent.mkdir(parents=True, exist_ok=True)
+                                shutil.copy2(mirror_path, local_path)
+                            if progress:
+                                progress.update(task.size, True)
+                            return True
+                    elif task.size > 0:
+                        # Fall back to size check if no checksum
+                        stat = mirror_path.stat()
+                        if stat.st_size == task.size:
+                            # File is correct size, copy from mirror to skel if needed
+                            if not local_path.exists() or not local_path.samefile(mirror_path):
+                                local_path.parent.mkdir(parents=True, exist_ok=True)
+                                shutil.copy2(mirror_path, local_path)
+                            if progress:
+                                progress.update(task.size, True)
+                            return True
+
+                # Check if file exists in skel_path and is correct size
                 if local_path.exists() and self.config.resume_partial_downloads:
                     stat = local_path.stat()
                     if stat.st_size == task.size:
-                        # File already downloaded
-                        if progress:
-                            progress.update(task.size, True)
-                        return True
+                        # Verify checksum if available
+                        if task.hashsum and self.config.verify_checksums:
+                            if await self._verify_checksum(local_path, task.hash_type, task.hashsum):
+                                # File already downloaded and verified
+                                if progress:
+                                    progress.update(task.size, True)
+                                return True
+                        else:
+                            # File already downloaded (size matches)
+                            if progress:
+                                progress.update(task.size, True)
+                            return True
                     elif stat.st_size < task.size:
                         # Resume partial download
                         headers = {"Range": f"bytes={stat.st_size}-"}
@@ -872,41 +913,76 @@ class AptMirror:
             self.download_queue.append(task)
 
     async def _download_releases(self):
-        """Download Release files"""
+        """Download Release files.
+        
+        Downloads InRelease, Release, and Release.gpg files for all configured
+        repositories. Handles both standard (with components) and flat repository
+        formats. Validates that at least one Release file is successfully downloaded
+        for each repository.
+        
+        :raises RuntimeError: If no Release files are found for any repository
+        """
         tasks = []
         release_urls = []
+        repo_release_map = {}  # Track which releases belong to which repo (#193)
 
+        # Process source repositories
         for uri, distribution, components in self.sources:
+            repo_key = f"{uri}:{distribution}"
             if components:
                 url_base = f"{uri}/dists/{distribution}/"
             else:
                 # Flat repository format
                 url_base = f"{uri}/{distribution}/"
             
+            repo_release_map[repo_key] = []
             for filename in ["InRelease", "Release", "Release.gpg"]:
                 url = f"{url_base}{filename}"
                 release_urls.append(url)
                 canonical = self._sanitize_uri(url)
                 task = DownloadTask(url=url, canonical_path=canonical, stage="release")
                 tasks.append(task)
+                repo_release_map[repo_key].append(canonical)
 
+        # Process binary repositories
         for arch, uri, distribution, components in self.binaries:
+            repo_key = f"{uri}:{distribution}:{arch}"
             if components:
                 url_base = f"{uri}/dists/{distribution}/"
             else:
                 # Flat repository format
                 url_base = f"{uri}/{distribution}/"
             
+            repo_release_map[repo_key] = []
             for filename in ["InRelease", "Release", "Release.gpg"]:
                 url = f"{url_base}{filename}"
                 release_urls.append(url)
                 canonical = self._sanitize_uri(url)
                 task = DownloadTask(url=url, canonical_path=canonical, stage="release")
                 tasks.append(task)
+                repo_release_map[repo_key].append(canonical)
 
         if tasks:
             await self.download_batch(tasks, "release")
             self.release_urls = release_urls
+            
+            # Verify at least one Release file exists for each repository (#193)
+            for repo_key, release_paths in repo_release_map.items():
+                found_release = False
+                for release_path in release_paths:
+                    # Check both skel and mirror paths
+                    skel_path = Path(self.config.skel_path) / release_path
+                    mirror_path = Path(self.config.mirror_path) / release_path
+                    # Only check InRelease and Release, not Release.gpg (optional)
+                    if "Release.gpg" not in release_path:
+                        if skel_path.exists() or mirror_path.exists():
+                            found_release = True
+                            break
+                
+                if not found_release:
+                    print(f"\nWarning: No Release file found for repository: {repo_key}")
+                    print("  This may indicate an invalid repository configuration or network issue.")
+                    print("  Continuing anyway, but metadata downloads may fail.")
 
     async def _parse_release_file(self, release_path: Path) -> Dict:
         """Parse Release file and extract metadata.
@@ -1038,11 +1114,15 @@ class AptMirror:
                             index_urls.append(url)
                             canonical = self._sanitize_uri(url)
                             
+                            # Store checksum for later verification (#199)
                             if strongest_hash and hashsum:
+                                self.metadata_checksums[canonical] = (strongest_hash, hashsum, size)
                                 self._add_url_to_download(
                                     url, size, strongest_hash, hash_type, hashsum
                                 )
                             else:
+                                # Store size for basic validation
+                                self.metadata_checksums[canonical] = (None, None, size)
                                 task = DownloadTask(
                                     url=url, size=size, canonical_path=canonical, stage="index"
                                 )
@@ -1071,6 +1151,13 @@ class AptMirror:
                         url = f"{dist_uri}{filename}"
                         index_urls.append(url)
                         canonical = self._sanitize_uri(url)
+                        # Store checksum for later verification (#199)
+                        hash_type = file_info.get('hash_type')
+                        hashsum = file_info.get('hashsum')
+                        if hash_type and hashsum:
+                            self.metadata_checksums[canonical] = (hash_type, hashsum, file_info['size'])
+                        else:
+                            self.metadata_checksums[canonical] = (None, None, file_info['size'])
                         task = DownloadTask(
                             url=url, size=file_info['size'], canonical_path=canonical, stage="index"
                         )
@@ -1111,7 +1198,7 @@ class AptMirror:
         
         Parses a Packages index file to extract package information and
         queue package files for download. Checks if files need updating
-        by comparing sizes.
+        by comparing sizes and checksums.
         
         :param uri: Base URI of the repository
         :type uri: str
@@ -1120,6 +1207,24 @@ class AptMirror:
         :param mirror_base: Base path of mirror directory
         :type mirror_base: Path
         """
+        # Verify file completeness before parsing (#199)
+        canonical = self._sanitize_uri(uri + '/' + index_path.name)
+        if canonical in self.metadata_checksums:
+            hash_type, hashsum, expected_size = self.metadata_checksums[canonical]
+            actual_size = index_path.stat().st_size
+            
+            # Check size first (fast check)
+            if actual_size != expected_size:
+                print(f"\nWarning: Packages file {index_path.name} size mismatch: "
+                      f"expected {expected_size}, got {actual_size}")
+                return
+            
+            # Verify checksum if available
+            if hash_type and hashsum and self.config.verify_checksums:
+                if not await self._verify_checksum(index_path, hash_type, hashsum):
+                    print(f"\nWarning: Packages file {index_path.name} checksum verification failed")
+                    return
+        
         # Decompress if needed
         decompressed = await self._decompress_file(index_path)
         if not decompressed or not decompressed.exists():
@@ -1155,9 +1260,34 @@ class AptMirror:
                 self.skip_clean.add(canonical)
                 
                 mirror_file = mirror_base / canonical
-                # Check if update needed
-                if not mirror_file.exists() or mirror_file.stat().st_size != size:
-                    self._add_url_to_download(file_path, size)
+                
+                # Extract checksums from Packages entry (#198)
+                hash_type = None
+                hashsum = None
+                for ht in [HashType.SHA512, HashType.SHA256, HashType.SHA1, HashType.MD5Sum]:
+                    checksum_key = ht.value
+                    if checksum_key in lines:
+                        hash_type = ht
+                        hashsum = lines[checksum_key].strip()
+                        break
+                
+                # Check if update needed using checksum if available, otherwise size (#198)
+                needs_update = True
+                if mirror_file.exists():
+                    if hash_type and hashsum and self.config.verify_checksums:
+                        # Use checksum for definitive check
+                        if await self._verify_checksum(mirror_file, hash_type, hashsum):
+                            needs_update = False
+                    else:
+                        # Fall back to size check
+                        if mirror_file.stat().st_size == size:
+                            needs_update = False
+                
+                if needs_update:
+                    if hash_type and hashsum:
+                        self._add_url_to_download(file_path, size, hash_type, hash_type, hashsum)
+                    else:
+                        self._add_url_to_download(file_path, size)
 
     async def _process_indexes(self):
         """Process Packages/Sources indexes"""

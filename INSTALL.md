@@ -146,6 +146,7 @@ which xdelta3 && echo "✓ xdelta3 OK"
 If `python3-aiohttp` is not available in your repository:
 
 1. **Check if it's in backports:**
+
    ```bash
    sudo apt-get install -t <release>-backports python3-aiohttp
    ```
@@ -155,11 +156,13 @@ If `python3-aiohttp` is not available in your repository:
 ### Permission Errors
 
 Make sure you run as a user with write access to the mirror directory:
+
 ```bash
 sudo apt-mirror
 ```
 
 Or configure proper permissions:
+
 ```bash
 sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
 ```
@@ -171,11 +174,13 @@ sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
    - For slower connections: 5-10 threads
 
 2. **Enable diffs** to save bandwidth on updates:
+
    ```
    set enable_diffs 1
    ```
 
 3. **Use limit_rate** to avoid saturating your connection:
+
    ```
    set limit_rate 100m
    ```
