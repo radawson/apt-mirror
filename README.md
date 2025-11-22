@@ -1,9 +1,176 @@
 apt-mirror
 ==========
 
+A small and efficient tool that lets you mirror a part of or the whole Debian GNU/Linux distribution or any other apt sources.
+
+**Version 0.6.0** - Now with async Python implementation!
+
 See: https://apt-mirror.github.io/
 
-New maintainer(s) wanted
+## Features
+
+- **Async downloads** using Python's asyncio and aiohttp for improved performance
+- **Diff serving** - Generate and serve binary diffs to reduce bandwidth usage
+- **Fully pool compliant** - Works with modern APT repository formats
+- **Multithreaded downloading** - Configurable concurrency
+- **Multiple architectures** - Support for all Debian/Ubuntu architectures
+- **Automatic cleanup** - Remove unneeded files automatically
+- **Backward compatible** - Works with existing mirror.list configuration files
+
+## Quick Installation
+
+### 1. Install Dependencies
+
+```bash
+sudo apt-get update
+sudo apt-get install python3 python3-aiohttp xdelta3
+```
+
+**Note**: `python3-aiohttp` is available in:
+- Debian Testing (Bookworm+) and Unstable
+- Ubuntu 24.04 (Noble) and later
+
+For older Ubuntu versions, you may need to use backports or compile from source.
+
+### 2. Install apt-mirror
+
+```bash
+# Copy the script to a system location
+sudo cp apt-mirror.py /usr/local/bin/apt-mirror
+sudo chmod +x /usr/local/bin/apt-mirror
+```
+
+Or if replacing the Perl version:
+```bash
+sudo cp apt-mirror.py /usr/bin/apt-mirror
+sudo chmod +x /usr/bin/apt-mirror
+```
+
+### 3. Configure
+
+Edit `/etc/apt/mirror.list` (or your custom config file):
+
+```bash
+sudo nano /etc/apt/mirror.list
+```
+
+Example configuration:
+```
+set base_path         /var/spool/apt-mirror
+set mirror_path       $base_path/mirror
+set skel_path         $base_path/skel
+set var_path          $base_path/var
+set defaultarch       amd64
+set nthreads          20
+set limit_rate        100m
+set enable_diffs      1
+set diff_algorithm    xdelta3
+
+deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+```
+
+### 4. Run
+
+```bash
+sudo apt-mirror /etc/apt/mirror.list
+```
+
+Or with the default config:
+```bash
+sudo apt-mirror
+```
+
+## New Features in 0.6.0
+
+### Diff Serving
+Generate binary diffs between file versions to reduce bandwidth:
+
+```
+set enable_diffs 1
+set diff_algorithm xdelta3
+set diff_storage_path $base_path/diffs
+set max_diff_size_ratio 0.5
+```
+
+### Enhanced Configuration Options
+
+```
+# Retry configuration
+set retry_attempts 5
+set retry_delay 2.0
+
+# Verify checksums after download
+set verify_checksums 1
+
+# Resume partial downloads
+set resume_partial_downloads 1
+```
+
+## Verification
+
+Check that dependencies are installed:
+
+```bash
+python3 -c "import aiohttp; print('✓ aiohttp OK')"
+which xdelta3 && echo "✓ xdelta3 OK"
+```
+
+## Troubleshooting
+
+### python3-aiohttp not found
+
+If `python3-aiohttp` is not available in your repository:
+
+1. **Check if it's in backports:**
+   ```bash
+   sudo apt-get install -t <release>-backports python3-aiohttp
+   ```
+
+2. **For very old systems**, you can modify the script to use `urllib` instead (less efficient but works)
+
+### Permission Errors
+
+Make sure you run as a user with write access to the mirror directory:
+```bash
+sudo apt-mirror
+```
+
+Or configure proper permissions:
+```bash
+sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
+```
+
+## Performance Tips
+
+1. **Adjust nthreads** based on your bandwidth and CPU:
+   - For fast connections: 20-50 threads
+   - For slower connections: 5-10 threads
+
+2. **Enable diffs** to save bandwidth on updates:
+   ```
+   set enable_diffs 1
+   ```
+
+3. **Use limit_rate** to avoid saturating your connection:
+   ```
+   set limit_rate 100m
+   ```
+
+## Compatibility
+
+- **Backward compatible** with existing `mirror.list` files
+- **Same directory structure** as Perl version
+- **Drop-in replacement** - can replace Perl script directly
+
+## Documentation
+
+- [INSTALL.md](INSTALL.md) - Detailed installation and usage guide
+- [FEATURES.md](FEATURES.md) - Complete feature list and improvements
+- [DEBIAN_DEPENDENCIES.md](DEBIAN_DEPENDENCIES.md) - Package dependency information
+- [BUILD.md](BUILD.md) - Building Debian packages from source
+
+## New maintainer(s) wanted
 ========================
 
 We (the current maintainers) lack the time and energy to maintain apt-mirror:
@@ -13,3 +180,12 @@ wants to join the GitHub apt-mirror group and continue maintaining this
 repository and do new releases. If you are interested and have time and energy
 to take the project over, please contact Brandon Holtsclaw to give you the
 permission.
+
+## License
+
+See [LICENSE](LICENSE) file for details.
+
+## Authors
+
+- Dmitry N. Hramtsov <hdn@nsu.ru>
+- Brandon Holtsclaw <me@brandonholtsclaw.com>

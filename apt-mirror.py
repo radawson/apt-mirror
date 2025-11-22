@@ -1057,12 +1057,32 @@ class AptMirror:
 
     async def _run_postmirror(self):
         """Run postmirror script"""
-        script = Path(self.config.postmirror_script)
-        if script.exists():
-            if script.stat().st_mode & 0o111:  # Executable
-                subprocess.run([str(script)], check=False)
-            else:
+        # Store in variable to avoid multiple lookups (PR #196 improvement)
+        script_path = self.config.postmirror_script
+        
+        # Check if script path is non-empty (PR #196 improvement)
+        if not script_path or not script_path.strip():
+            print("Warning: postmirror_script is empty, skipping postmirror execution.")
+            return
+        
+        script = Path(script_path)
+        
+        # Check if script file exists (PR #196 improvement)
+        if not script.exists():
+            print(f"Warning: postmirror script not found: {script_path}, skipping.")
+            return
+        
+        # Check if script is readable (needed for /bin/sh execution)
+        # Note: Executable binaries don't need read permission, but scripts do
+        if script.stat().st_mode & 0o111:  # Executable
+            # Try to execute directly (works for binaries and executable scripts)
+            subprocess.run([str(script)], check=False)
+        else:
+            # For non-executable scripts, check readability before using /bin/sh
+            if os.access(script, os.R_OK):
                 subprocess.run(['/bin/sh', str(script)], check=False)
+            else:
+                print(f"Warning: postmirror script is not readable: {script_path}, skipping.")
 
 
 async def main():

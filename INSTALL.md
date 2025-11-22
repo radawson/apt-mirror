@@ -45,14 +45,30 @@ set base_path         /var/spool/apt-mirror
 set mirror_path       $base_path/mirror
 set skel_path         $base_path/skel
 set var_path          $base_path/var
-set defaultarch       amd64
+set postmirror_script $var_path/postmirror.sh
+set defaultarch       i386
+set run_postmirror    0
 set nthreads          20
 set limit_rate        100m
-set enable_diffs      1
-set diff_algorithm    xdelta3
+set _tilde            0
+# Use --unlink with wget (for use with hardlinked directories)
+set unlink            1
+set use_proxy         off
+set http_proxy        127.0.0.1:3128
+set proxy_user        user
+set proxy_password    password
 
-deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
+
+#deb-src http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+#deb-src http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+#deb-src http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+#deb-src http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
+
+clean http://archive.ubuntu.com/ubuntu
 ```
 
 ### 4. Run
