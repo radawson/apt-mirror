@@ -2,6 +2,8 @@
   * Complete rewrite in Python with async/await support for improved performance
   * Add diff generation capability using xdelta3, bsdiff, or rsync (for custom tools only - standard APT does not support diffs)
   * Add optional GPG signature verification for Release files (requires gpgv command, no Python dependencies)
+  * Add support for per-repository GPG keyrings using [signed-by=/path/to/keyring.gpg] option (APT-compatible format)
+  * Add support for mirror.list.d/ directory (similar to APT's sources.list.d/) for organizing repositories into separate files
   * Implement automatic retry with exponential backoff for failed downloads
   * Add resume support for partial downloads using HTTP Range requests
   * Add optional checksum verification after downloads

@@ -41,6 +41,8 @@ Edit `/etc/apt/mirror.list` (or your custom config file):
 sudo nano /etc/apt/mirror.list
 ```
 
+**Note**: apt-mirror also supports configuration files in `/etc/apt/mirror.list.d/*.list` directory (similar to APT's `sources.list.d/`). This allows you to organize repositories into separate files. All files are read and merged together.
+
 Example configuration:
 
 ```bash
@@ -324,7 +326,9 @@ set resume_partial_downloads 1
 # (inline signed) and Release + Release.gpg (detached signature) formats.
 # Uses the system's trusted GPG keyrings by default.
 set verify_gpg 1
-# Optional: specify custom GPG keyring path (empty = use system default)
+# Optional: specify global GPG keyring path (empty = use system default)
+# Per-repository keyrings can be specified using [signed-by=/path/to/keyring.gpg] option
+# Example: deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main
 # set gpg_keyring /path/to/keyring.gpg
 
 # Proxy configuration (for authenticated proxies)
@@ -345,6 +349,59 @@ set unlink 1
 #   "both" - Generate clean.sh script AND perform automatic cleanup (useful for testing/debugging)
 # set clean on
 ```
+
+### Per-Repository GPG Keyrings
+
+Each repository can have its own GPG keyring for signature verification. This is especially useful when mirroring multiple distributions (e.g., Ubuntu, Debian, Kali) that use different signing keys.
+
+**Method 1: Using [signed-by=...] option (Recommended, APT-compatible)**
+
+```bash
+# Ubuntu repositories with Ubuntu keyring
+deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main
+
+# Debian repositories with Debian keyring
+deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main
+
+# Kali repositories with Kali keyring
+deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] http://http.kali.org/kali kali-rolling main
+```
+
+**Method 2: Using mirror.list.d/ directory**
+
+Organize repositories into separate files, each with their own keyring configuration:
+
+```bash
+# /etc/apt/mirror.list.d/ubuntu.list
+deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main
+
+# /etc/apt/mirror.list.d/debian.list
+deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main
+
+# /etc/apt/mirror.list.d/kali.list
+deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] http://http.kali.org/kali kali-rolling main
+```
+
+**Getting GPG keyrings:**
+
+Most distributions provide keyring packages:
+
+```bash
+# Ubuntu
+sudo apt-get install ubuntu-keyring
+
+# Debian
+sudo apt-get install debian-archive-keyring
+
+# Kali
+wget -q -O - https://archive.kali.org/archive-key.asc | sudo gpg --dearmor -o /usr/share/keyrings/kali-archive-keyring.gpg
+```
+
+**Keyring locations:**
+
+- Modern: `/usr/share/keyrings/*.gpg` (recommended)
+- Legacy: `/etc/apt/trusted.gpg.d/*.gpg`
+- System: `/etc/apt/trusted.gpg` (not recommended for per-repo use)
 
 ## Verification
 

@@ -155,6 +155,15 @@ sudo deluser --system apt-mirror
 sudo rm -rf /var/spool/apt-mirror
 ```
 
+## Configuration Files
+
+apt-mirror supports multiple configuration files:
+
+1. **Main config file**: `/etc/apt/mirror.list` (or custom path)
+2. **Additional config files**: `/etc/apt/mirror.list.d/*.list` (sorted alphabetically)
+
+This allows you to organize repositories into separate files (e.g., one file per distribution or vendor). All files are read and merged together.
+
 ## New Configuration Options
 
 Add these to your `mirror.list` for new features:
@@ -187,7 +196,8 @@ set resume_partial_downloads 1
 # GPG signature verification (requires gpgv command)
 # Verify GPG signatures of Release files for security
 # set verify_gpg 1
-# Optional: specify custom GPG keyring path (empty = use system default)
+# Optional: specify global GPG keyring path (empty = use system default)
+# Per-repository keyrings can be specified using [signed-by=/path/to/keyring.gpg] option
 # set gpg_keyring /path/to/keyring.gpg
 
 # Cleanup mode: Controls how old files are removed from the mirror

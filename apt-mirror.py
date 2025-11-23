@@ -397,8 +397,12 @@ class AptMirror:
         """
         self.config_file = config_file
         self.config = Config()
-        self.binaries: List[Tuple[str, str, str, List[str]]] = []  # (arch, uri, distribution, components)
-        self.sources: List[Tuple[str, str, List[str]]] = []  # (uri, distribution, components)
+        # Store binaries with keyring: (arch, uri, distribution, components, keyring)
+        self.binaries: List[Tuple[str, str, str, List[str], Optional[str]]] = []
+        # Store sources with keyring: (uri, distribution, components, keyring)
+        self.sources: List[Tuple[str, str, List[str], Optional[str]]] = []
+        # Map repository URIs to their keyrings for GPG verification
+        self.repo_keyrings: Dict[str, Optional[str]] = {}  # Key: repo_key, Value: keyring path
         self.clean_dirs: Set[str] = set()
         self.skip_clean: Set[str] = set()
         self.download_queue: List[DownloadTask] = []
@@ -474,72 +478,111 @@ class AptMirror:
             self.lock_file.unlink()
 
     def parse_config(self):
-        """Parse mirror.list configuration file.
+        """Parse mirror.list configuration file and mirror.list.d/*.list files.
         
-        Reads and parses the configuration file line by line, extracting:
+        Reads and parses configuration files line by line, extracting:
         - Configuration settings (set directives)
         - Binary repository definitions (deb lines)
         - Source repository definitions (deb-src lines)
         - Cleanup directives (clean and skip-clean lines)
         
         Supports variable substitution and handles both standard and flat
-        repository formats.
+        repository formats. Also supports per-repository GPG keyring configuration
+        using the [signed-by=/path/to/keyring.gpg] option (compatible with APT format).
+        
+        Configuration files are read in this order:
+        1. Main config file (e.g., /etc/apt/mirror.list)
+        2. Files in mirror.list.d/ directory (sorted alphabetically)
         
         :raises FileNotFoundError: If config file doesn't exist
         """
+        # Collect all config files to parse
+        config_files = []
+        
+        # Add main config file
         if not os.path.exists(self.config_file):
             raise FileNotFoundError(f"Config file not found: {self.config_file}")
+        config_files.append(self.config_file)
+        
+        # Add mirror.list.d/*.list files if directory exists
+        config_dir = os.path.dirname(self.config_file)
+        mirror_list_d = os.path.join(config_dir, 'mirror.list.d')
+        if os.path.isdir(mirror_list_d):
+            for filename in sorted(os.listdir(mirror_list_d)):
+                if filename.endswith('.list'):
+                    config_files.append(os.path.join(mirror_list_d, filename))
+        
+        # Parse all config files
+        for config_file in config_files:
+            with open(config_file, 'r') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
 
-        with open(self.config_file, 'r') as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
+                    # Parse set commands
+                    if line.startswith('set '):
+                        match = re.match(r'set\s+(\S+)\s+(.+)', line)
+                        if match:
+                            key, value = match.groups()
+                            value = value.strip('"\'')
+                            self._set_config(key, value)
+                        continue
 
-                # Parse set commands
-                if line.startswith('set '):
-                    match = re.match(r'set\s+(\S+)\s+(.+)', line)
-                    if match:
-                        key, value = match.groups()
-                        value = value.strip('"\'')
-                        self._set_config(key, value)
-                    continue
+                    # Parse deb/deb-src lines
+                    # Format: deb [OPTIONS] URI DISTRIBUTION COMPONENT1 COMPONENT2 ...
+                    # Options can include: signed-by=/path/to/keyring.gpg, arch=amd64, etc.
+                    deb_match = re.match(
+                        r'^(deb-src|deb)(?:-(\S+))?\s+(?:\[([^\]]+)\]\s+)?(\S+)\s+(\S+)\s+(.+)$',
+                        line
+                    )
+                    if deb_match:
+                        repo_type, arch, options, uri, distribution, components = deb_match.groups()
+                        components_list = components.split()
+                        
+                        # Extract keyring from options (signed-by=/path/to/keyring.gpg)
+                        keyring = None
+                        if options:
+                            signed_by_match = re.search(r'signed-by=([^,\s]+)', options)
+                            if signed_by_match:
+                                keyring = signed_by_match.group(1).strip('"\'')
+                        
+                        # Create repository key for keyring mapping
+                        repo_key = f"{uri}:{distribution}"
+                        
+                        if repo_type == "deb":
+                            if not arch:
+                                arch = self.config.defaultarch
+                            # Handle arch= in options
+                            if options and 'arch=' in options:
+                                arch_match = re.search(r'arch=([^,\s]+)', options)
+                                if arch_match:
+                                    arch = arch_match.group(1)
+                            repo_key = f"{uri}:{distribution}:{arch}"
+                            self.binaries.append((arch, uri, distribution, components_list, keyring))
+                        else:  # deb-src
+                            self.sources.append((uri, distribution, components_list, keyring))
+                        
+                        # Store keyring mapping for GPG verification
+                        if keyring:
+                            self.repo_keyrings[repo_key] = keyring
+                        elif repo_key not in self.repo_keyrings:
+                            # Only set to None if not already set (allow override in mirror.list.d)
+                            self.repo_keyrings[repo_key] = None
+                        continue
 
-                # Parse deb/deb-src lines
-                # Format: deb [OPTIONS] URI DISTRIBUTION COMPONENT1 COMPONENT2 ...
-                deb_match = re.match(
-                    r'^(deb-src|deb)(?:-(\S+))?\s+(?:\[([^\]]+)\]\s+)?(\S+)\s+(\S+)\s+(.+)$',
-                    line
-                )
-                if deb_match:
-                    repo_type, arch, options, uri, distribution, components = deb_match.groups()
-                    components_list = components.split()
-                    
-                    if repo_type == "deb":
-                        if not arch:
-                            arch = self.config.defaultarch
-                        # Handle arch= in options
-                        if options and 'arch=' in options:
-                            arch_match = re.search(r'arch=([^,\s]+)', options)
-                            if arch_match:
-                                arch = arch_match.group(1)
-                        self.binaries.append((arch, uri, distribution, components_list))
-                    else:  # deb-src
-                        self.sources.append((uri, distribution, components_list))
-                    continue
+                    # Parse clean/skip-clean
+                    clean_match = re.match(r'^(clean|skip-clean)\s+(\S+)', line)
+                    if clean_match:
+                        clean_type, uri = clean_match.groups()
+                        sanitized = self._sanitize_uri(uri)
+                        if clean_type == "clean":
+                            self.clean_dirs.add(sanitized)
+                        else:
+                            self.skip_clean.add(sanitized)
+                        continue
 
-                # Parse clean/skip-clean
-                clean_match = re.match(r'^(clean|skip-clean)\s+(\S+)', line)
-                if clean_match:
-                    clean_type, uri = clean_match.groups()
-                    sanitized = self._sanitize_uri(uri)
-                    if clean_type == "clean":
-                        self.clean_dirs.add(sanitized)
-                    else:
-                        self.skip_clean.add(sanitized)
-                    continue
-
-                print(f"Warning: Unrecognized line {line_num}: {line}")
+                    print(f"Warning: Unrecognized line in {config_file}:{line_num}: {line}")
 
     def _set_config(self, key: str, value: str):
         """Set configuration value.
@@ -977,7 +1020,7 @@ class AptMirror:
         repo_release_map = {}  # Track which releases belong to which repo (#193)
 
         # Process source repositories
-        for uri, distribution, components in self.sources:
+        for uri, distribution, components, keyring in self.sources:
             repo_key = f"{uri}:{distribution}"
             if components:
                 url_base = f"{uri}/dists/{distribution}/"
@@ -995,7 +1038,7 @@ class AptMirror:
                 repo_release_map[repo_key].append(canonical)
 
         # Process binary repositories
-        for arch, uri, distribution, components in self.binaries:
+        for arch, uri, distribution, components, keyring in self.binaries:
             repo_key = f"{uri}:{distribution}:{arch}"
             if components:
                 url_base = f"{uri}/dists/{distribution}/"
@@ -1094,15 +1137,18 @@ class AptMirror:
                     elif mirror_path.exists():
                         release_path = mirror_path
             
+            # Get keyring for this repository
+            keyring = self.repo_keyrings.get(repo_key)
+            
             # Verify InRelease (inline signed)
             if inrelease_path:
-                if await self._verify_gpg_signature(inrelease_path, None, repo_key):
+                if await self._verify_gpg_signature(inrelease_path, None, repo_key, keyring):
                     verified_count += 1
                 else:
                     failed_count += 1
             # Verify Release + Release.gpg (detached signature)
             elif release_path and release_gpg_path:
-                if await self._verify_gpg_signature(release_path, release_gpg_path, repo_key):
+                if await self._verify_gpg_signature(release_path, release_gpg_path, repo_key, keyring):
                     verified_count += 1
                 else:
                     failed_count += 1
@@ -1115,11 +1161,13 @@ class AptMirror:
         if failed_count > 0:
             print(f"\nWarning: {failed_count} repository signature(s) failed verification")
 
-    async def _verify_gpg_signature(self, release_file: Path, gpg_file: Optional[Path], repo_key: str) -> bool:
+    async def _verify_gpg_signature(self, release_file: Path, gpg_file: Optional[Path], repo_key: str, keyring: Optional[str] = None) -> bool:
         """Verify GPG signature of a Release file.
         
         Verifies GPG signature using gpgv command. Supports both inline signed
         InRelease files and detached signatures (Release + Release.gpg).
+        Uses per-repository keyring if specified, otherwise falls back to global
+        keyring or system defaults.
         
         :param release_file: Path to Release or InRelease file
         :type release_file: Path
@@ -1127,6 +1175,8 @@ class AptMirror:
         :type gpg_file: Optional[Path]
         :param repo_key: Repository identifier for error messages
         :type repo_key: str
+        :param keyring: Per-repository keyring path (overrides global keyring)
+        :type keyring: Optional[str]
         :returns: True if signature is valid, False otherwise
         :rtype: bool
         """
@@ -1136,18 +1186,19 @@ class AptMirror:
         # Build gpgv command
         cmd = ['gpgv']
         
-        # Add keyring option if specified
-        if self.config.gpg_keyring:
-            cmd.extend(['--keyring', self.config.gpg_keyring])
-        else:
-            # Use system default keyrings
-            # Try /usr/share/keyrings/ first (modern), then /etc/apt/trusted.gpg.d/
-            keyring_dirs = [
-                '/usr/share/keyrings',
-                '/etc/apt/trusted.gpg.d',
-                '/etc/apt/trusted.gpg'
-            ]
-            # gpgv will use system default if no keyring specified
+        # Add keyring option - per-repository keyring takes precedence
+        keyring_to_use = keyring or self.config.gpg_keyring
+        if keyring_to_use:
+            # Expand path if it's relative (e.g., /etc/apt/keyrings/ubuntu.gpg)
+            if not os.path.isabs(keyring_to_use):
+                # If relative, try common locations
+                for base_dir in ['/etc/apt/keyrings', '/usr/share/keyrings', '/etc/apt/trusted.gpg.d']:
+                    full_path = os.path.join(base_dir, keyring_to_use)
+                    if os.path.exists(full_path):
+                        keyring_to_use = full_path
+                        break
+            cmd.extend(['--keyring', keyring_to_use])
+        # If no keyring specified, gpgv will use system default keyrings
         
         # For detached signature: gpgv Release.gpg Release
         # For inline signed: gpgv InRelease
@@ -1268,7 +1319,7 @@ class AptMirror:
         index_urls = []
 
         # Process binary repositories
-        for arch, uri, distribution, components in self.binaries:
+        for arch, uri, distribution, components, _ in self.binaries:
             if components:
                 dist_uri = f"{uri}/dists/{distribution}/"
             else:
@@ -1330,7 +1381,7 @@ class AptMirror:
                             break
 
         # Process source repositories
-        for uri, distribution, components in self.sources:
+        for uri, distribution, components, _ in self.sources:
             if components:
                 dist_uri = f"{uri}/dists/{distribution}/"
             else:

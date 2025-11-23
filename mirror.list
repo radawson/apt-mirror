@@ -32,13 +32,16 @@ set resume_partial_downloads 1
 # GPG signature verification (requires gpgv command)
 # Verify GPG signatures of Release files for security
 # set verify_gpg 1
-# Optional: specify custom GPG keyring path (empty = use system default)
+# Optional: specify global GPG keyring path (empty = use system default)
+# Per-repository keyrings can be specified using [signed-by=/path/to/keyring.gpg] option
 # set gpg_keyring /path/to/keyring.gpg
 
 # Cleanup mode: "off" (no cleanup), "on" (generate clean.sh, default), "auto" (automatic - dangerous!), or "both" (script + auto, for testing)
 # set clean on
 
 # Ubuntu 24.04 LTS (Noble Numbat) repositories
+# Per-repository GPG keyring can be specified using [signed-by=...] option (APT-compatible format)
+# Example: deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main
 deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
