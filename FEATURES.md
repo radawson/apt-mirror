@@ -8,12 +8,19 @@
 - **Non-blocking I/O** using `asyncio.to_thread()` for file operations
 - **Better resource utilization** - no process forking overhead
 
-### 2. **Diff Serving (NEW)**
+### 2. **Diff Generation (NEW)**
 - **Generate binary diffs** between file versions using `xdelta3`
-- **Serve diffs alongside complete files** to reduce bandwidth
+- **Store diffs alongside complete files** for custom use cases
 - **Configurable diff algorithm**: xdelta3, bsdiff, or rsync
 - **Smart diff sizing**: Only create diffs if they're smaller than a threshold (default 50% of original)
 - **Version tracking**: Maintains JSON database of file versions for diff generation
+
+**Important Note**: Standard APT clients do **not** support diffs. APT downloads complete `.deb` files as documented in the [Debian SourcesList wiki](https://wiki.debian.org/SourcesList). The diff feature is only useful for:
+- Custom tools or scripts that can download and apply diffs
+- Bandwidth analysis and comparison
+- Manual file reconstruction from diffs
+
+To serve diffs, you must configure your web server (nginx/apache) to serve the `diff_storage_path` directory, and clients must implement custom logic to download and apply diffs using tools like `xdelta3`.
 
 **Configuration:**
 ```

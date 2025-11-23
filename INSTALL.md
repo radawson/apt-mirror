@@ -100,7 +100,9 @@ sudo apt-mirror
 Add these to your `mirror.list` for new features:
 
 ```bash
-# Enable diff generation
+# Enable diff generation (for custom tools only - standard APT does not use diffs)
+# Note: Standard APT clients download complete .deb files. Diffs are only useful
+# for custom tools that can download and apply diffs. See Debian SourcesList docs.
 set enable_diffs 1
 
 # Choose diff algorithm (xdelta3, bsdiff, or rsync)
@@ -227,11 +229,13 @@ sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
    - For fast connections: 20-50 threads
    - For slower connections: 5-10 threads
 
-2. **Enable diffs** to save bandwidth on updates:
+2. **Enable diffs** (for custom tools only - standard APT does not use diffs):
 
    ```bash
    set enable_diffs 1
    ```
+
+   **Note**: Standard APT clients download complete `.deb` files and do not support diffs. The diff feature is only useful for custom tools or scripts that can download and apply diffs. See [Debian SourcesList documentation](https://wiki.debian.org/SourcesList) for APT's standard behavior.
 
 3. **Use limit_rate** to avoid saturating your connection:
 

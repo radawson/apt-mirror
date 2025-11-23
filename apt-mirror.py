@@ -15,7 +15,7 @@ Dependencies (all available in Debian/Ubuntu repos):
 * python3-aiohttp (apt package)
 * xdelta3 (apt package, for diff generation)
 
-All imports are from standard library except aiohttp.
+All imports are from standard library except aiohttp and xdelta3.
 """
 
 import asyncio
