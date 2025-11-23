@@ -29,6 +29,12 @@ set retry_delay       2.0
 set verify_checksums  1
 set resume_partial_downloads 1
 
+# GPG signature verification (requires gpgv command)
+# Verify GPG signatures of Release files for security
+# set verify_gpg 1
+# Optional: specify custom GPG keyring path (empty = use system default)
+# set gpg_keyring /path/to/keyring.gpg
+
 # Cleanup mode: "off" (no cleanup), "on" (generate clean.sh, default), "auto" (automatic - dangerous!), or "both" (script + auto, for testing)
 # set clean on
 

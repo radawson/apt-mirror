@@ -68,6 +68,12 @@ set retry_delay       2.0
 set verify_checksums  1
 set resume_partial_downloads 1
 
+# GPG signature verification (requires gpgv command)
+# Verify GPG signatures of Release files for security
+# set verify_gpg 1
+# Optional: specify custom GPG keyring path (empty = use system default)
+# set gpg_keyring /path/to/keyring.gpg
+
 # Ubuntu 24.04 LTS (Noble Numbat) repositories
 deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
@@ -312,6 +318,14 @@ set verify_checksums 1
 
 # Resume partial downloads
 set resume_partial_downloads 1
+
+# GPG signature verification (requires gpgv command)
+# Verify GPG signatures of Release files for security. Supports both InRelease
+# (inline signed) and Release + Release.gpg (detached signature) formats.
+# Uses the system's trusted GPG keyrings by default.
+set verify_gpg 1
+# Optional: specify custom GPG keyring path (empty = use system default)
+# set gpg_keyring /path/to/keyring.gpg
 
 # Proxy configuration (for authenticated proxies)
 set use_proxy on

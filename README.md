@@ -10,6 +10,7 @@ See: https://apt-mirror.github.io/
 ## Features
 
 - **Async downloads** using Python's asyncio and aiohttp for improved performance
+- **GPG signature verification** - Optional verification of Release file signatures for security
 - **Diff generation** - Generate binary diffs for custom use cases (note: standard APT does not support diffs)
 - **Fully pool compliant** - Works with modern APT repository formats
 - **Multithreaded downloading** - Configurable concurrency
@@ -182,6 +183,12 @@ set verify_checksums 1
 
 # Resume partial downloads
 set resume_partial_downloads 1
+
+# GPG signature verification (requires gpgv command)
+# Verify GPG signatures of Release files for security
+# set verify_gpg 1
+# Optional: specify custom GPG keyring path (empty = use system default)
+# set gpg_keyring /path/to/keyring.gpg
 
 # Cleanup mode: Controls how old files are removed from the mirror
 #   "off"  - No cleanup performed

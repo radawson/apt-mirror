@@ -11,10 +11,12 @@ Vcs-Git: https://github.com/radawson/apt-mirror.git
 Package: apt-mirror
 Architecture: all
 Depends: ${python3:Depends}, python3-aiohttp, xdelta3, ${misc:Depends}
+Recommends: gpgv
 Description: APT repository mirroring tool (async Python version)
  A tool for mirroring APT repositories with async support for improved
  performance. Features include:
   * Async downloads using aiohttp
+  * Optional GPG signature verification for Release files
   * Diff serving capability to reduce bandwidth
   * Better error handling and progress reporting
   * Improved performance for large mirrors

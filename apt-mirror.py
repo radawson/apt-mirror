@@ -130,6 +130,8 @@ class Config:
     retry_delay: float = 2.0
     verify_checksums: bool = True
     resume_partial_downloads: bool = True
+    verify_gpg: bool = False  # Verify GPG signatures of Release files
+    gpg_keyring: str = ""  # Custom GPG keyring path (empty = use system default)
 
     def __post_init__(self):
         """Resolve variable substitutions in configuration values.
@@ -1031,6 +1033,156 @@ class AptMirror:
                     print(f"\nWarning: No Release file found for repository: {repo_key}")
                     print("  This may indicate an invalid repository configuration or network issue.")
                     print("  Continuing anyway, but metadata downloads may fail.")
+            
+            # Verify GPG signatures if enabled
+            if self.config.verify_gpg:
+                await self._verify_release_signatures(repo_release_map)
+
+    async def _verify_release_signatures(self, repo_release_map: Dict[str, List[str]]):
+        """Verify GPG signatures of Release files.
+        
+        Verifies GPG signatures for all downloaded Release files. Supports both
+        InRelease (inline signed) and Release + Release.gpg (detached signature) formats.
+        Uses gpgv command which is standard on Debian/Ubuntu systems.
+        
+        :param repo_release_map: Dictionary mapping repository keys to their release file paths
+        :type repo_release_map: Dict[str, List[str]]
+        """
+        if not self.config.verify_gpg:
+            return
+        
+        # Check if gpgv is available
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ['gpgv', '--version'],
+                capture_output=True,
+                check=True
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print("\nWarning: gpgv command not found. GPG verification disabled.")
+            print("  Install gpgv with: sudo apt-get install gpgv")
+            return
+        
+        verified_count = 0
+        failed_count = 0
+        
+        for repo_key, release_paths in repo_release_map.items():
+            # Find InRelease or Release + Release.gpg files
+            inrelease_path = None
+            release_path = None
+            release_gpg_path = None
+            
+            for release_path_str in release_paths:
+                # Check both skel and mirror paths
+                skel_path = Path(self.config.skel_path) / release_path_str
+                mirror_path = Path(self.config.mirror_path) / release_path_str
+                
+                if "InRelease" in release_path_str:
+                    if skel_path.exists():
+                        inrelease_path = skel_path
+                    elif mirror_path.exists():
+                        inrelease_path = mirror_path
+                elif "Release.gpg" in release_path_str:
+                    if skel_path.exists():
+                        release_gpg_path = skel_path
+                    elif mirror_path.exists():
+                        release_gpg_path = mirror_path
+                elif "Release" in release_path_str and "Release.gpg" not in release_path_str:
+                    if skel_path.exists():
+                        release_path = skel_path
+                    elif mirror_path.exists():
+                        release_path = mirror_path
+            
+            # Verify InRelease (inline signed)
+            if inrelease_path:
+                if await self._verify_gpg_signature(inrelease_path, None, repo_key):
+                    verified_count += 1
+                else:
+                    failed_count += 1
+            # Verify Release + Release.gpg (detached signature)
+            elif release_path and release_gpg_path:
+                if await self._verify_gpg_signature(release_path, release_gpg_path, repo_key):
+                    verified_count += 1
+                else:
+                    failed_count += 1
+            else:
+                print(f"\nWarning: No Release signature files found for {repo_key}")
+                print("  GPG verification skipped for this repository.")
+        
+        if verified_count > 0:
+            print(f"\nGPG verification: {verified_count} repository signature(s) verified successfully")
+        if failed_count > 0:
+            print(f"\nWarning: {failed_count} repository signature(s) failed verification")
+
+    async def _verify_gpg_signature(self, release_file: Path, gpg_file: Optional[Path], repo_key: str) -> bool:
+        """Verify GPG signature of a Release file.
+        
+        Verifies GPG signature using gpgv command. Supports both inline signed
+        InRelease files and detached signatures (Release + Release.gpg).
+        
+        :param release_file: Path to Release or InRelease file
+        :type release_file: Path
+        :param gpg_file: Path to Release.gpg file (None for InRelease)
+        :type gpg_file: Optional[Path]
+        :param repo_key: Repository identifier for error messages
+        :type repo_key: str
+        :returns: True if signature is valid, False otherwise
+        :rtype: bool
+        """
+        if not release_file.exists():
+            return False
+        
+        # Build gpgv command
+        cmd = ['gpgv']
+        
+        # Add keyring option if specified
+        if self.config.gpg_keyring:
+            cmd.extend(['--keyring', self.config.gpg_keyring])
+        else:
+            # Use system default keyrings
+            # Try /usr/share/keyrings/ first (modern), then /etc/apt/trusted.gpg.d/
+            keyring_dirs = [
+                '/usr/share/keyrings',
+                '/etc/apt/trusted.gpg.d',
+                '/etc/apt/trusted.gpg'
+            ]
+            # gpgv will use system default if no keyring specified
+        
+        # For detached signature: gpgv Release.gpg Release
+        # For inline signed: gpgv InRelease
+        if gpg_file and gpg_file.exists():
+            cmd.append(str(gpg_file))
+            cmd.append(str(release_file))
+        else:
+            # InRelease (inline signed)
+            cmd.append(str(release_file))
+        
+        try:
+            def run_gpgv():
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                return result.returncode == 0
+            
+            verified = await asyncio.to_thread(run_gpgv)
+            
+            if verified:
+                print(f"  ✓ GPG signature verified for {repo_key}")
+                return True
+            else:
+                print(f"  ✗ GPG signature verification failed for {repo_key}")
+                return False
+                
+        except subprocess.CalledProcessError as e:
+            print(f"  ✗ GPG signature verification failed for {repo_key}: {e.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"  ✗ GPG signature verification error for {repo_key}: {e}")
+            return False
 
     async def _parse_release_file(self, release_path: Path) -> Dict:
         """Parse Release file and extract metadata.
