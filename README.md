@@ -107,6 +107,19 @@ Or with the default config:
 sudo apt-mirror
 ```
 
+### 5. Schedule with systemd (Recommended)
+
+To keep your mirror up to date automatically, enable the systemd timer:
+
+```bash
+# If installed via .deb: service/timer files are already installed
+# If installed manually: create service/timer files (see INSTALL.md)
+sudo systemctl enable apt-mirror.timer
+sudo systemctl start apt-mirror.timer
+```
+
+See [INSTALL.md](INSTALL.md) for detailed systemd service/timer setup and cron alternatives.
+
 ## New Configuration Options
 
 Add these to your `mirror.list` for new features:
@@ -135,6 +148,14 @@ set verify_checksums 1
 
 # Resume partial downloads
 set resume_partial_downloads 1
+
+# Cleanup mode: Controls how old files are removed from the mirror
+#   "off"  - No cleanup performed
+#   "on"   - Generate clean.sh script for manual review (default, recommended)
+#   "auto" - Automatically remove old files (DANGEROUS - use with extreme caution!)
+#            WARNING: Automatic cleanup permanently deletes files and cannot be undone!
+#   "both" - Generate clean.sh script AND perform automatic cleanup (useful for testing/debugging)
+# set clean on
 
 # Proxy configuration (for authenticated proxies)
 set use_proxy on

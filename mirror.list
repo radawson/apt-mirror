@@ -29,6 +29,9 @@ set retry_delay       2.0
 set verify_checksums  1
 set resume_partial_downloads 1
 
+# Cleanup mode: "off" (no cleanup), "on" (generate clean.sh, default), "auto" (automatic - dangerous!), or "both" (script + auto, for testing)
+# set clean on
+
 # Ubuntu 24.04 LTS (Noble Numbat) repositories
 deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse

@@ -95,6 +95,141 @@ Or with the default config:
 sudo apt-mirror
 ```
 
+### 5. Schedule with systemd (Recommended)
+
+**Systemd service/timer is recommended** over cron for better monitoring, logging, and resource management. apt-mirror includes a lock file mechanism to prevent concurrent runs.
+
+**Note**: If you installed via `.deb` package, the systemd service and timer files are already installed. Skip to "Enable and start" below.
+
+#### Create systemd service (manual installation only)
+
+Create `/etc/systemd/system/apt-mirror.service`:
+
+```ini
+[Unit]
+Description=APT Mirror Update
+Documentation=man:apt-mirror(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/apt-mirror /etc/apt/mirror.list
+User=root
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits (adjust as needed)
+CPUQuota=200%
+MemoryMax=4G
+IOWeight=100
+
+# Nice priority (lower = higher priority, range -20 to 19)
+Nice=10
+```
+
+#### Create systemd timer (manual installation only)
+
+Create `/etc/systemd/system/apt-mirror.timer`:
+
+```ini
+[Unit]
+Description=Run apt-mirror daily
+Requires=apt-mirror.service
+
+[Timer]
+# Run daily at 2:00 AM
+OnCalendar=*-*-* 02:00:00
+
+# Run twice daily (2 AM and 2 PM) - uncomment to use:
+# OnCalendar=*-*-* 02,14:00:00
+
+# Run every 6 hours - uncomment to use:
+# OnCalendar=*-*-* 00,06,12,18:00:00
+
+# If the system was off during the scheduled time, run immediately after boot
+Persistent=true
+
+# Randomize start time by up to 30 minutes to avoid thundering herd
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target
+```
+
+#### Enable and start
+
+**If you installed via .deb package**: The systemd service and timer files are already installed. You just need to enable and start the timer:
+
+```bash
+# Enable the timer (starts automatically on boot)
+sudo systemctl enable apt-mirror.timer
+
+# Start the timer immediately
+sudo systemctl start apt-mirror.timer
+```
+
+**If you installed manually**: Create the service and timer files as shown above, then:
+
+```bash
+# Reload systemd to recognize new units
+sudo systemctl daemon-reload
+
+# Enable the timer (starts automatically on boot)
+sudo systemctl enable apt-mirror.timer
+
+# Start the timer immediately
+sudo systemctl start apt-mirror.timer
+```
+
+# Check timer status
+sudo systemctl status apt-mirror.timer
+
+# View when the next run is scheduled
+sudo systemctl list-timers apt-mirror.timer
+
+# View service logs
+sudo journalctl -u apt-mirror.service -f
+
+# Manually trigger a run (for testing)
+sudo systemctl start apt-mirror.service
+```
+
+#### Benefits of systemd over cron
+
+1. **Better logging**: Integrated with journald, easy to query and filter
+2. **Status monitoring**: Check if service is running with `systemctl status`
+3. **Resource limits**: Control CPU, memory, and IO usage
+4. **Dependencies**: Wait for network to be online before starting
+5. **Persistent timers**: Automatically catch up if system was off
+6. **Randomized delays**: Avoid thundering herd on multiple mirrors
+7. **Better error handling**: Can see exit codes and failure reasons
+
+### Alternative: Cron (if systemd is not available)
+
+If you prefer cron or are on a system without systemd:
+
+Edit root's crontab:
+
+```bash
+sudo crontab -e
+```
+
+Add one of these entries:
+
+```bash
+# Run daily at 2:00 AM
+0 2 * * * /usr/bin/apt-mirror /etc/apt/mirror.list >> /var/spool/apt-mirror/var/cron.log 2>&1
+
+# Run twice daily (2 AM and 2 PM)
+0 2,14 * * * /usr/bin/apt-mirror /etc/apt/mirror.list >> /var/spool/apt-mirror/var/cron.log 2>&1
+
+# Run every 6 hours
+0 */6 * * * /usr/bin/apt-mirror /etc/apt/mirror.list >> /var/spool/apt-mirror/var/cron.log 2>&1
+```
+
+**Note**: With cron, you'll need to manually check logs and cannot easily monitor status or set resource limits.
+
 ## New Configuration Options
 
 Add these to your `mirror.list` for new features:
@@ -133,6 +268,14 @@ set proxy_password your_proxy_password
 
 # Unlink option: For hardlinked directories support. When enabled, unlinks destination files before copying if they differ. This is necessary when using hardlinks - you cannot overwrite a hardlinked file directly, you must unlink it first. (Note: wget --unlink is no longer used since we use async downloads, but this option still applies to file copying operations)
 set unlink 1
+
+# Cleanup mode: Controls how old files are removed from the mirror
+#   "off"  - No cleanup performed
+#   "on"   - Generate clean.sh script for manual review (default, recommended)
+#   "auto" - Automatically remove old files (DANGEROUS - use with extreme caution!)
+#            WARNING: Automatic cleanup permanently deletes files and cannot be undone!
+#   "both" - Generate clean.sh script AND perform automatic cleanup (useful for testing/debugging)
+# set clean on
 ```
 
 ## Verification

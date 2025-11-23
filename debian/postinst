@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+
+# postinst script for apt-mirror
+
+case "$1" in
+    configure)
+        # Reload systemd to recognize new units
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+            
+            # Note: Timer is installed but not enabled by default
+            # Users should enable it manually after configuring mirror.list:
+            #   sudo systemctl enable apt-mirror.timer
+            #   sudo systemctl start apt-mirror.timer
+        fi
+        ;;
+esac
+
+exit 0

@@ -102,7 +102,9 @@ class Config:
     nthreads: int = 20
     limit_rate: str = "100m"
     _contents: bool = True
-    _autoclean: bool = False
+    clean: str = "on"  # User-facing option: "off", "on" (generate clean.sh), or "auto" (automatic cleanup)
+    _autoclean: bool = False  # Internal: automatic cleanup enabled
+    _clean_script: bool = True  # Internal: generate clean.sh script
     _tilde: bool = False
     run_postmirror: bool = True
     auth_no_challenge: bool = False
@@ -151,6 +153,25 @@ class Config:
                 self.defaultarch = result.stdout.strip()
             except (subprocess.CalledProcessError, FileNotFoundError):
                 self.defaultarch = "amd64"
+
+        # Initialize internal cleanup flags based on clean setting
+        clean_value = self.clean.lower() if isinstance(self.clean, str) else "on"
+        if clean_value == "off":
+            self._autoclean = False
+            self._clean_script = False
+        elif clean_value == "on":
+            self._autoclean = False
+            self._clean_script = True
+        elif clean_value == "auto":
+            self._autoclean = True
+            self._clean_script = False
+        elif clean_value == "both":
+            self._autoclean = True
+            self._clean_script = True
+        else:
+            # Default to "on"
+            self._autoclean = False
+            self._clean_script = True
 
         # Resolve variable substitutions
         for key, value in vars(self).items():
@@ -538,7 +559,34 @@ class AptMirror:
             bool_value = None
 
         if hasattr(self.config, key):
-            if bool_value is not None:
+            # Special handling for clean (can be "off", "on", "auto", or "both")
+            # Sets internal _autoclean and _clean_script variables
+            # "both" enables both script generation and automatic cleanup (useful for testing)
+            if key == "clean":
+                value_lower = value.lower()
+                if value_lower == "off":
+                    self.config.clean = "off"
+                    self.config._autoclean = False
+                    self.config._clean_script = False
+                elif value_lower == "on":
+                    self.config.clean = "on"
+                    self.config._autoclean = False
+                    self.config._clean_script = True
+                elif value_lower == "auto":
+                    self.config.clean = "auto"
+                    self.config._autoclean = True
+                    self.config._clean_script = False
+                elif value_lower == "both":
+                    self.config.clean = "both"
+                    self.config._autoclean = True
+                    self.config._clean_script = True
+                else:
+                    # Default to "on" if invalid value
+                    print(f"Warning: Invalid clean value '{value}', using 'on'")
+                    self.config.clean = "on"
+                    self.config._autoclean = False
+                    self.config._clean_script = True
+            elif bool_value is not None:
                 setattr(self.config, key, bool_value)
             else:
                 # Try to convert to int if possible
@@ -1560,21 +1608,155 @@ class AptMirror:
         return False
 
     async def _cleanup_old_files(self):
-        """Remove old/unused files"""
-        if not self.config._autoclean:
-            # Generate cleanup script
-            await self._generate_cleanup_script()
+        """Remove old/unused files from mirror directories.
+        
+        Uses internal _autoclean and _clean_script flags set from clean config.
+        
+        Files in skip_clean set are never removed. Only files in directories
+        specified by "clean" directives in mirror.list are considered for removal.
+        """
+        if not self.config._autoclean and not self.config._clean_script:
+            print("Cleanup disabled (set clean to 'on' or 'auto' to enable)")
             return
         
-        print("Cleaning up old files...")
-        # Implementation for automatic cleanup
-        # Similar to Perl version - walk directories and remove files not in skip_clean
+        # Generate script first if requested (useful for debugging/testing)
+        if self.config._clean_script:
+            await self._generate_cleanup_script()
+        
+        # Perform automatic cleanup if requested
+        if self.config._autoclean:
+            print("\n" + "="*70)
+            print("WARNING: Automatic cleanup is enabled!")
+            print("="*70)
+            print("This will PERMANENTLY DELETE files from your mirror that are")
+            print("no longer in the repository. This action cannot be undone.")
+            print("="*70)
+            if self.config._clean_script:
+                print("Note: clean.sh script has been generated for reference.")
+                print("="*70)
+            print("\nProceeding with automatic cleanup in 5 seconds...")
+            print("(Press Ctrl+C to cancel)")
+            print()
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                print("\nCleanup cancelled by user.")
+                return
+            
+            await self._perform_automatic_cleanup()
 
     async def _generate_cleanup_script(self):
-        """Generate cleanup script"""
+        """Generate cleanup script for manual review.
+        
+        Creates a shell script that lists files to be removed. Users can
+        review the script before running it manually. Files in skip_clean
+        are never included in the cleanup script.
+        """
         script_path = Path(self.config.cleanscript)
-        # Implementation similar to Perl version
-        print(f"Cleanup script would be generated at {script_path}")
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        print("Generating cleanup script...")
+        
+        # Collect files to remove
+        files_to_remove = []
+        
+        for clean_dir in self.clean_dirs:
+            clean_path = Path(self.config.mirror_path) / clean_dir
+            if not clean_path.exists():
+                continue
+            
+            # Walk the directory tree
+            def walk_directory():
+                files = []
+                for root, dirs, filenames in os.walk(clean_path):
+                    for filename in filenames:
+                        file_path = Path(root) / filename
+                        # Get relative path from mirror_path
+                        try:
+                            rel_path = file_path.relative_to(Path(self.config.mirror_path))
+                            canonical = str(rel_path).replace('\\', '/')
+                            
+                            # Skip if file is in skip_clean
+                            if canonical not in self.skip_clean:
+                                files.append((file_path, canonical))
+                        except ValueError:
+                            # File is outside mirror_path, skip it
+                            continue
+                return files
+            
+            files_to_remove.extend(await asyncio.to_thread(walk_directory))
+        
+        if not files_to_remove:
+            print("No files to clean up.")
+            return
+        
+        # Generate the cleanup script
+        def write_script():
+            with open(script_path, 'w') as f:
+                f.write("#!/bin/sh\n")
+                f.write("# Cleanup script generated by apt-mirror\n")
+                f.write(f"# Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("# Review this script before running!\n")
+                f.write("# Run with: sh " + str(script_path) + "\n\n")
+                f.write("set -e\n\n")
+                f.write(f"# Removing {len(files_to_remove)} files...\n\n")
+                
+                for file_path, canonical in sorted(files_to_remove):
+                    # Use relative path in script for clarity
+                    f.write(f"rm -f \"{file_path}\"\n")
+                
+                f.write("\n# Cleanup complete\n")
+            
+            # Make script executable
+            script_path.chmod(0o755)
+        
+        await asyncio.to_thread(write_script)
+        
+        print(f"Cleanup script generated: {script_path}")
+        print(f"  {len(files_to_remove)} files will be removed")
+        print(f"  Review the script before running: sh {script_path}")
+
+    async def _perform_automatic_cleanup(self):
+        """Perform automatic cleanup of old files.
+        
+        WARNING: This permanently deletes files. Use with extreme caution.
+        Only files in directories specified by "clean" directives and not
+        in skip_clean are removed.
+        """
+        print("Performing automatic cleanup...")
+        removed_count = 0
+        
+        for clean_dir in self.clean_dirs:
+            clean_path = Path(self.config.mirror_path) / clean_dir
+            if not clean_path.exists():
+                continue
+            
+            # Walk the directory tree and remove files
+            def remove_files():
+                count = 0
+                for root, dirs, filenames in os.walk(clean_path):
+                    for filename in filenames:
+                        file_path = Path(root) / filename
+                        # Get relative path from mirror_path
+                        try:
+                            rel_path = file_path.relative_to(Path(self.config.mirror_path))
+                            canonical = str(rel_path).replace('\\', '/')
+                            
+                            # Skip if file is in skip_clean
+                            if canonical not in self.skip_clean:
+                                try:
+                                    file_path.unlink()
+                                    count += 1
+                                except OSError as e:
+                                    print(f"Warning: Could not remove {file_path}: {e}")
+                        except ValueError:
+                            # File is outside mirror_path, skip it
+                            continue
+                return count
+            
+            removed_count += await asyncio.to_thread(remove_files)
+        
+        print(f"Automatic cleanup complete: {removed_count} files removed.")
 
     async def _run_postmirror(self):
         """Run postmirror script.
