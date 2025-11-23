@@ -70,7 +70,7 @@ debian/files
 debian/*.debhelper.log
 debian/*.substvars
 debian/*.debhelper
-#debian/*-build-stamp
+debian/*-build-stamp
 debian/apt-mirror/
 debian/repo-mirror/
 *.deb
