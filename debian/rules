@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+# debian/rules for apt-mirror
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# Install files from debian/install
+	dh_auto_install
+	# Rename apt-mirror.py to apt-mirror
+	mv debian/apt-mirror/usr/bin/apt-mirror.py debian/apt-mirror/usr/bin/apt-mirror || true
+	# Create base directories
+	install -d debian/apt-mirror/var/spool/apt-mirror/mirror
+	install -d debian/apt-mirror/var/spool/apt-mirror/skel
+	install -d debian/apt-mirror/var/spool/apt-mirror/var
+	install -d debian/apt-mirror/var/spool/apt-mirror/diffs
+
+override_dh_auto_test:
+	# Check that dependencies are available
+	@python3 -c "import aiohttp" || (echo "ERROR: python3-aiohttp not available" && exit 1)
+	@which xdelta3 >/dev/null || (echo "ERROR: xdelta3 not available" && exit 1)
+	@echo "Dependencies check passed"
+

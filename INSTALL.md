@@ -1,23 +1,8 @@
-apt-mirror
-==========
+# Installation and Usage
 
-A small and efficient tool that lets you mirror a part of or the whole Debian GNU/Linux distribution or any other apt sources.
+version 0.6.0
 
-**Version 0.6.0** - Now with async Python implementation!
-
-See: https://apt-mirror.github.io/
-
-## Features
-
-- **Async downloads** using Python's asyncio and aiohttp for improved performance
-- **Diff serving** - Generate and serve binary diffs to reduce bandwidth usage
-- **Fully pool compliant** - Works with modern APT repository formats
-- **Multithreaded downloading** - Configurable concurrency
-- **Multiple architectures** - Support for all Debian/Ubuntu architectures
-- **Automatic cleanup** - Remove unneeded files automatically
-- **Backward compatible** - Works with existing mirror.list configuration files
-
-## Quick Installation
+## Quick Start
 
 ### 1. Install Dependencies
 
@@ -32,7 +17,7 @@ sudo apt-get install python3 python3-aiohttp xdelta3
 
 For older Ubuntu versions, you may need to use backports or compile from source.
 
-### 2. Install apt-mirror
+### 2. Install apt-mirror.py
 
 ```bash
 # Copy the script to a system location
@@ -161,6 +146,7 @@ which xdelta3 && echo "✓ xdelta3 OK"
 If `python3-aiohttp` is not available in your repository:
 
 1. **Check if it's in backports:**
+
    ```bash
    sudo apt-get install -t <release>-backports python3-aiohttp
    ```
@@ -170,11 +156,13 @@ If `python3-aiohttp` is not available in your repository:
 ### Permission Errors
 
 Make sure you run as a user with write access to the mirror directory:
+
 ```bash
 sudo apt-mirror
 ```
 
 Or configure proper permissions:
+
 ```bash
 sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
 ```
@@ -186,11 +174,13 @@ sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
    - For slower connections: 5-10 threads
 
 2. **Enable diffs** to save bandwidth on updates:
+
    ```
    set enable_diffs 1
    ```
 
 3. **Use limit_rate** to avoid saturating your connection:
+
    ```
    set limit_rate 100m
    ```
@@ -201,30 +191,3 @@ sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
 - **Same directory structure** as Perl version
 - **Drop-in replacement** - can replace Perl script directly
 
-## Documentation
-
-- [INSTALL.md](INSTALL.md) - Detailed installation and usage guide
-- [FEATURES.md](FEATURES.md) - Complete feature list and improvements
-- [DEBIAN_DEPENDENCIES.md](DEBIAN_DEPENDENCIES.md) - Package dependency information
-- [BUILD.md](BUILD.md) - Building Debian packages from source
-
-## New maintainer(s) wanted
-========================
-
-We (the current maintainers) lack the time and energy to maintain apt-mirror:
-Our last commit is years old and the number of pull request is rising. We
-agreed on acknowledging this fact and are searching for new maintainers who
-wants to join the GitHub apt-mirror group and continue maintaining this
-repository and do new releases. If you are interested and have time and energy
-to take the project over, please contact Brandon Holtsclaw to give you the
-permission.
-
-## License
-
-See [LICENSE](LICENSE) file for details.
-
-## Authors
-
-- Dmitry N. Hramtsov <hdn@nsu.ru>
-- Brandon Holtsclaw <me@brandonholtsclaw.com>
-- Richard Dawson <dawsonra@clockworx.org>

@@ -1,0 +1,3 @@
+apt-mirror.py usr/bin/
+mirror.list etc/apt/
+
