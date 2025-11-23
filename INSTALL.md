@@ -85,6 +85,8 @@ clean http://archive.ubuntu.com/ubuntu
 
 ### 4. Run
 
+**Note**: If installed via `.deb` package, a dedicated `apt-mirror` system user is created automatically. The systemd service runs as this user for security. When running manually, you can run as root or the `apt-mirror` user (if it exists).
+
 ```bash
 sudo apt-mirror /etc/apt/mirror.list
 ```
@@ -95,11 +97,31 @@ Or with the default config:
 sudo apt-mirror
 ```
 
+Or run as the apt-mirror user (if created):
+
+```bash
+sudo -u apt-mirror apt-mirror /etc/apt/mirror.list
+```
+
 ### 5. Schedule with systemd (Recommended)
 
 **Systemd service/timer is recommended** over cron for better monitoring, logging, and resource management. apt-mirror includes a lock file mechanism to prevent concurrent runs.
 
 **Note**: If you installed via `.deb` package, the systemd service and timer files are already installed. Skip to "Enable and start" below.
+
+#### Create apt-mirror user (manual installation only)
+
+Create a dedicated system user for apt-mirror:
+
+```bash
+sudo adduser --system --group --home /var/spool/apt-mirror \
+    --no-create-home --disabled-login apt-mirror
+
+# Set ownership of mirror directories
+sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror
+```
+
+**Note**: If you installed via `.deb` package, the user is created automatically.
 
 #### Create systemd service (manual installation only)
 
@@ -115,7 +137,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/apt-mirror /etc/apt/mirror.list
-User=root
+User=apt-mirror
 StandardOutput=journal
 StandardError=journal
 
@@ -182,8 +204,40 @@ sudo systemctl enable apt-mirror.timer
 sudo systemctl start apt-mirror.timer
 ```
 
-# Check timer status
+#### Check timer status
+
+```bash
 sudo systemctl status apt-mirror.timer
+```
+
+### 6. Uninstalling
+
+To remove apt-mirror:
+
+```bash
+# Remove package (keeps config files)
+sudo apt remove apt-mirror
+
+# Or remove package and config files
+sudo apt purge apt-mirror
+```
+
+**Important**: The following are NOT automatically removed and must be cleaned up manually if desired:
+
+- **apt-mirror user**: The system user created during installation (if installed via `.deb` package)
+- **Data directories**: `/var/spool/apt-mirror/` and all its contents (mirror data, logs, etc.)
+
+To manually remove the user and data:
+
+```bash
+# Remove the apt-mirror user (optional - only if you want to completely remove everything)
+sudo deluser --system apt-mirror
+
+# Remove data directories (WARNING: This deletes all mirrored data!)
+sudo rm -rf /var/spool/apt-mirror
+```
+
+**Note**: The systemd timer and service are automatically stopped and disabled during package removal by the `prerm` script.
 
 # View when the next run is scheduled
 sudo systemctl list-timers apt-mirror.timer
@@ -354,13 +408,17 @@ If `python3-aiohttp` is not available in your repository:
 
 ### Permission Errors
 
-Make sure you run as a user with write access to the mirror directory:
+Make sure you run as a user with write access to the mirror directory. If installed via `.deb` package, the `apt-mirror` user is created automatically and owns `/var/spool/apt-mirror`:
 
 ```bash
+# Run as root (if apt-mirror user doesn't exist)
 sudo apt-mirror
+
+# Or run as apt-mirror user (recommended if user exists)
+sudo -u apt-mirror apt-mirror
 ```
 
-Or configure proper permissions:
+Or configure proper permissions manually:
 
 ```bash
 sudo chown -R apt-mirror:apt-mirror /var/spool/apt-mirror

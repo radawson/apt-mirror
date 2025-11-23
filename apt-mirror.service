@@ -7,7 +7,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/apt-mirror /etc/apt/mirror.list
-User=root
+User=apt-mirror
 StandardOutput=journal
 StandardError=journal
 

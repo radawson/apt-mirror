@@ -98,6 +98,8 @@ clean http://archive.ubuntu.com/ubuntu
 
 ### 4. Run
 
+**Note**: If installed via `.deb` package, a dedicated `apt-mirror` system user is created automatically. The systemd service runs as this user for security. When running manually, you can run as root or the `apt-mirror` user (if it exists).
+
 ```bash
 sudo apt-mirror /etc/apt/mirror.list
 ```
@@ -105,6 +107,11 @@ sudo apt-mirror /etc/apt/mirror.list
 Or with the default config:
 ```bash
 sudo apt-mirror
+```
+
+Or run as the apt-mirror user (if created):
+```bash
+sudo -u apt-mirror apt-mirror /etc/apt/mirror.list
 ```
 
 ### 5. Schedule with systemd (Recommended)
@@ -119,6 +126,33 @@ sudo systemctl start apt-mirror.timer
 ```
 
 See [INSTALL.md](INSTALL.md) for detailed systemd service/timer setup and cron alternatives.
+
+### 6. Uninstalling
+
+To remove apt-mirror:
+
+```bash
+# Remove package (keeps config files)
+sudo apt remove apt-mirror
+
+# Or remove package and config files
+sudo apt purge apt-mirror
+```
+
+**Important**: The following are NOT automatically removed and must be cleaned up manually if desired:
+
+- **apt-mirror user**: The system user created during installation
+- **Data directories**: `/var/spool/apt-mirror/` and all its contents (mirror data, logs, etc.)
+
+To manually remove the user and data:
+
+```bash
+# Remove the apt-mirror user (optional - only if you want to completely remove everything)
+sudo deluser --system apt-mirror
+
+# Remove data directories (WARNING: This deletes all mirrored data!)
+sudo rm -rf /var/spool/apt-mirror
+```
 
 ## New Configuration Options
 

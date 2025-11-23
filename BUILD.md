@@ -155,6 +155,35 @@ python3 -c "import aiohttp; print('OK')"
 which xdelta3
 ```
 
+## Uninstalling the Package
+
+To remove the package:
+
+```bash
+# Remove package (keeps config files)
+sudo apt remove apt-mirror
+
+# Or remove package and config files
+sudo apt purge apt-mirror
+```
+
+**Important**: The following are NOT automatically removed and must be cleaned up manually if desired:
+
+- **apt-mirror user**: The system user created during installation
+- **Data directories**: `/var/spool/apt-mirror/` and all its contents (mirror data, logs, etc.)
+
+To manually remove the user and data:
+
+```bash
+# Remove the apt-mirror user (optional - only if you want to completely remove everything)
+sudo deluser --system apt-mirror
+
+# Remove data directories (WARNING: This deletes all mirrored data!)
+sudo rm -rf /var/spool/apt-mirror
+```
+
+**Note**: The systemd timer and service are automatically stopped and disabled during package removal by the `prerm` script.
+
 ## Uploading to Repository
 
 For official Debian/Ubuntu repositories, follow the standard Debian packaging workflow:
