@@ -3,7 +3,7 @@ apt-mirror
 
 A small and efficient tool that lets you mirror a part of or the whole Debian GNU/Linux distribution or any other apt sources.
 
-**Version 0.6.0** - Now with async Python implementation!
+**Version 0.6.1** - Now with async Python implementation!
 
 See: https://apt-mirror.github.io/
 
@@ -130,14 +130,14 @@ See [INSTALL.md](INSTALL.md) for detailed systemd service/timer setup and cron a
 
 ### 6. Uninstalling
 
-To remove apt-mirror:
+To remove repo-mirror:
 
 ```bash
 # Remove package (keeps config files)
-sudo apt remove apt-mirror
+sudo apt remove repo-mirror
 
 # Or remove package and config files
-sudo apt purge apt-mirror
+sudo apt purge repo-mirror
 ```
 
 **Important**: The following are NOT automatically removed and must be cleaned up manually if desired:

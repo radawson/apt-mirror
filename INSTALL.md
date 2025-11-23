@@ -1,6 +1,6 @@
 # Installation and Usage
 
-version 0.6.0
+version 0.6.1
 
 ## Quick Start
 
@@ -220,14 +220,14 @@ sudo systemctl status apt-mirror.timer
 
 ### 6. Uninstalling
 
-To remove apt-mirror:
+To remove repo-mirror:
 
 ```bash
 # Remove package (keeps config files)
-sudo apt remove apt-mirror
+sudo apt remove repo-mirror
 
 # Or remove package and config files
-sudo apt purge apt-mirror
+sudo apt purge repo-mirror
 ```
 
 **Important**: The following are NOT automatically removed and must be cleaned up manually if desired:

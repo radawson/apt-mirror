@@ -1,3 +1,9 @@
+0.6.1 (2024-01-01)
+  * Rename Debian package from apt-mirror to repo-mirror to avoid conflicts
+    with existing apt-mirror package in Debian/Ubuntu repositories
+  * Tool name remains 'apt-mirror' as a drop-in replacement for the Perl version
+  * All functionality and file names remain unchanged
+
 0.6.0 (2024-01-01)
   * Complete rewrite in Python with async/await support for improved performance
   * Add diff generation capability using xdelta3, bsdiff, or rsync (for custom tools only - standard APT does not support diffs)

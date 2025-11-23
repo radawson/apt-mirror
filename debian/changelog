@@ -1,4 +1,12 @@
-apt-mirror (0.6.0) unstable; urgency=medium
+repo-mirror (0.6.1) unstable; urgency=medium
+
+  * Rename package from apt-mirror to repo-mirror to avoid conflicts with
+    existing apt-mirror package in Debian/Ubuntu repositories
+  * Tool name remains 'apt-mirror' as a drop-in replacement for the Perl version
+
+ -- Debian/Ubuntu Maintainers <debian-apt-mirror@lists.debian.org>  Mon, 01 Jan 2024 00:00:00 +0000
+
+repo-mirror (0.6.0) unstable; urgency=medium
 
   * Rewrite in Python with async support
   * Add diff serving capability using xdelta3

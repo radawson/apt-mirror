@@ -1,5 +1,5 @@
 #!/usr/bin/make -f
-# debian/rules for apt-mirror
+# debian/rules for repo-mirror (package name), apt-mirror (internal tool name)
 
 export DH_VERBOSE = 1
 
@@ -13,13 +13,13 @@ override_dh_auto_install:
 override_dh_install:
 	# Install files from debian/install
 	dh_install
-	# Rename apt-mirror.py to apt-mirror
-	mv debian/apt-mirror/usr/bin/apt-mirror.py debian/apt-mirror/usr/bin/apt-mirror || true
+	# Rename apt-mirror.py to apt-mirror (tool name stays apt-mirror as drop-in replacement)
+	mv debian/repo-mirror/usr/bin/apt-mirror.py debian/repo-mirror/usr/bin/apt-mirror || true
 	# Create base directories
-	install -d debian/apt-mirror/var/spool/apt-mirror/mirror
-	install -d debian/apt-mirror/var/spool/apt-mirror/skel
-	install -d debian/apt-mirror/var/spool/apt-mirror/var
-	install -d debian/apt-mirror/var/spool/apt-mirror/diffs
+	install -d debian/repo-mirror/var/spool/apt-mirror/mirror
+	install -d debian/repo-mirror/var/spool/apt-mirror/skel
+	install -d debian/repo-mirror/var/spool/apt-mirror/var
+	install -d debian/repo-mirror/var/spool/apt-mirror/diffs
 
 override_dh_auto_test:
 	# Check that dependencies are available

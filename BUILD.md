@@ -89,7 +89,7 @@ The Debian package includes:
 After building, install with:
 
 ```bash
-sudo dpkg -i ../apt-mirror_0.6.0-1_all.deb
+sudo dpkg -i ../repo-mirror_0.6.1-1_all.deb
 ```
 
 If there are missing dependencies:
@@ -144,7 +144,7 @@ After building, test installation:
 
 ```bash
 # Install
-sudo dpkg -i ../apt-mirror_0.6.0-1_all.deb
+sudo dpkg -i ../repo-mirror_0.6.1-1_all.deb
 
 # Verify installation
 which apt-mirror
@@ -161,10 +161,10 @@ To remove the package:
 
 ```bash
 # Remove package (keeps config files)
-sudo apt remove apt-mirror
+sudo apt remove repo-mirror
 
 # Or remove package and config files
-sudo apt purge apt-mirror
+sudo apt purge repo-mirror
 ```
 
 **Important**: The following are NOT automatically removed and must be cleaned up manually if desired:
