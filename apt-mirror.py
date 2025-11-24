@@ -1443,36 +1443,63 @@ class AptMirror:
                     hash_type = file_info.get('hash_type')
                     hashsum = file_info.get('hashsum')
                     
-                    # Match patterns for Packages, Contents, etc.
-                    patterns = [
-                        rf"^{comp}/binary-{arch}/Packages",
-                        rf"^{comp}/binary-all/Packages",
-                        rf"^{comp}/Contents-{arch}",
-                        rf"^{comp}/Contents-all",
-                        rf"Contents-{arch}",
-                        rf"Contents-all",
-                    ] if components else [r"^Packages", r"^Contents-"]
+                    # Match patterns for Packages, Contents, c-n-f, dep11, etc.
+                    matched = False
+                    if components:
+                        # Check against each component
+                        for comp in components:
+                            patterns = [
+                                (rf"^{comp}/binary-{arch}/Packages", r"(\.(gz|bz2|xz))?$"),
+                                (rf"^{comp}/binary-all/Packages", r"(\.(gz|bz2|xz))?$"),
+                                (rf"^{comp}/Contents-{arch}", r"(\.(gz|bz2|xz))?$"),
+                                (rf"^{comp}/Contents-all", r"(\.(gz|bz2|xz))?$"),
+                                (rf"^{comp}/cnf/Commands-{arch}", r"$"),  # c-n-f metadata (no compression)
+                                (rf"^{comp}/cnf/Commands-all", r"$"),  # c-n-f metadata for all arch
+                                (rf"^{comp}/dep11/", r".*"),  # dep11 metadata (Components-*.yml, icons-*.tar, etc.)
+                            ]
+                            for pattern, ext_pattern in patterns:
+                                if re.match(pattern + ext_pattern, filename):
+                                    matched = True
+                                    break
+                            if matched:
+                                break
+                    else:
+                        # Flat repository - match general patterns
+                        patterns = [
+                            (r"^Packages", r"(\.(gz|bz2|xz))?$"),
+                            (r"^Contents-", r"(\.(gz|bz2|xz))?$"),
+                            (r"^cnf/", r".*"),
+                            (r"^dep11/", r".*"),
+                        ]
+                        for pattern, ext_pattern in patterns:
+                            if re.match(pattern + ext_pattern, filename):
+                                matched = True
+                                break
                     
-                    for pattern in patterns:
-                        if re.match(pattern + r"(\.(gz|bz2|xz))?$", filename):
-                            url = f"{dist_uri}{filename}"
-                            index_urls.append(url)
-                            canonical = self._sanitize_uri(url)
-                            
-                            # Store checksum for later verification (#199)
-                            if strongest_hash and hashsum:
-                                self.metadata_checksums[canonical] = (strongest_hash, hashsum, size)
-                                self._add_url_to_download(
-                                    url, size, strongest_hash, hash_type, hashsum
-                                )
-                            else:
-                                # Store size for basic validation
-                                self.metadata_checksums[canonical] = (None, None, size)
-                                task = DownloadTask(
-                                    url=url, size=size, canonical_path=canonical, stage="index"
-                                )
-                                tasks.append(task)
-                            break
+                    # Also match Contents files that don't have component prefix
+                    if not matched:
+                        if re.match(rf"^Contents-{arch}(\.(gz|bz2|xz))?$", filename) or \
+                           re.match(r"^Contents-all(\.(gz|bz2|xz))?$", filename):
+                            matched = True
+                    
+                    if matched:
+                        url = f"{dist_uri}{filename}"
+                        index_urls.append(url)
+                        canonical = self._sanitize_uri(url)
+                        
+                        # Store checksum for later verification (#199)
+                        if strongest_hash and hashsum:
+                            self.metadata_checksums[canonical] = (strongest_hash, hashsum, size)
+                            self._add_url_to_download(
+                                url, size, strongest_hash, hash_type, hashsum
+                            )
+                        else:
+                            # Store size for basic validation
+                            self.metadata_checksums[canonical] = (None, None, size)
+                            task = DownloadTask(
+                                url=url, size=size, canonical_path=canonical, stage="index"
+                            )
+                            tasks.append(task)
 
         # Process source repositories
         for uri, distribution, components, _ in self.sources:
