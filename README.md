@@ -3,7 +3,7 @@ apt-mirror
 
 A small and efficient tool that lets you mirror a part of or the whole Debian GNU/Linux distribution or any other apt sources.
 
-**Version 0.6.2** - Now with async Python implementation!
+**Version 0.6.3** - Now with async Python implementation!
 
 See: https://apt-mirror.github.io/
 

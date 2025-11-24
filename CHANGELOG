@@ -1,3 +1,18 @@
+0.6.3 (2024-11-24)
+  * Fix variable expansion to handle dependencies correctly (var_path after base_path)
+  * Add comprehensive logging for each file download with status indicators
+  * Fix automatic cleanup to protect files in skel and download queue
+  * Fix file copying from skel to mirror - now copies all files including packages
+  * Add support for translation (i18n) files - i18n/Index and Translation-*.bz2/xz
+  * Improve metadata file pattern matching to match old Perl implementation exactly
+  * Add support for uncompressed dep11 files (future-proofing for modern APT)
+  * Fix dep11 and cnf file pattern matching to handle all compression formats
+  * Handle optional Release.gpg files gracefully (404 is acceptable)
+  * Improve download summary to show succeeded/failed/skipped counts
+  * Ensure all downloaded files are properly tracked in skip_clean for cleanup protection
+  * Fix Release file copying - ensure all Release files are copied to mirror
+  * Add comprehensive support for all modern APT metadata types
+
 0.6.2 (2024-11-24)
   * Fix size verification for Release files with unknown sizes (size=0)
   * Fix unpacking error in _process_indexes for binaries and sources tuples

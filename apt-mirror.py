@@ -46,6 +46,7 @@ except ImportError:
     print("Please install it with: sudo apt-get install python3-aiohttp")
     sys.exit(1)
 
+__version__ = "0.6.3"
 
 class HashType(Enum):
     """Supported hash types in order of strength.
@@ -1444,41 +1445,53 @@ class AptMirror:
                     hashsum = file_info.get('hashsum')
                     
                     # Match patterns for Packages, Contents, c-n-f, dep11, etc.
+                    # Patterns must match the old Perl implementation exactly
                     matched = False
                     if components:
                         # Check against each component
                         for comp in components:
-                            patterns = [
-                                (rf"^{comp}/binary-{arch}/Packages", r"(\.(gz|bz2|xz))?$"),
-                                (rf"^{comp}/binary-all/Packages", r"(\.(gz|bz2|xz))?$"),
-                                (rf"^{comp}/Contents-{arch}", r"(\.(gz|bz2|xz))?$"),
-                                (rf"^{comp}/Contents-all", r"(\.(gz|bz2|xz))?$"),
-                                (rf"^{comp}/cnf/Commands-{arch}", r"$"),  # c-n-f metadata (no compression)
-                                (rf"^{comp}/cnf/Commands-all", r"$"),  # c-n-f metadata for all arch
-                                (rf"^{comp}/dep11/", r".*"),  # dep11 metadata (Components-*.yml, icons-*.tar, etc.)
-                            ]
-                            for pattern, ext_pattern in patterns:
-                                if re.match(pattern + ext_pattern, filename):
-                                    matched = True
-                                    break
-                            if matched:
+                            # Packages files (compressed)
+                            if re.match(rf"^{re.escape(comp)}/binary-{re.escape(arch)}/Packages(\.(gz|bz2|xz))?$", filename) or \
+                               re.match(rf"^{re.escape(comp)}/binary-all/Packages(\.(gz|bz2|xz))?$", filename):
+                                matched = True
+                                break
+                            # Contents files (compressed)
+                            if re.match(rf"^{re.escape(comp)}/Contents-{re.escape(arch)}(\.(gz|bz2|xz))?$", filename) or \
+                               re.match(rf"^{re.escape(comp)}/Contents-all(\.(gz|bz2|xz))?$", filename):
+                                matched = True
+                                break
+                            # c-n-f files: Commands-{arch} with optional compression (matches old: Commands-${arch}(\.(gz|bz2|xz))?)
+                            if re.match(rf"^{re.escape(comp)}/cnf/Commands-{re.escape(arch)}(\.(gz|bz2|xz))?$", filename) or \
+                               re.match(rf"^{re.escape(comp)}/cnf/Commands-all(\.(gz|bz2|xz))?$", filename):
+                                matched = True
+                                break
+                            # dep11 files: Components-{arch}.yml or icons-*.tar, compressed (matches old: Components-${arch}\.yml|icons-[^./]+\.tar)\.(gz|bz2|xz)
+                            # Also handle uncompressed dep11 files (modern APT may use uncompressed)
+                            if re.match(rf"^{re.escape(comp)}/dep11/Components-{re.escape(arch)}\.yml(\.(gz|bz2|xz))?$", filename) or \
+                               re.match(rf"^{re.escape(comp)}/dep11/icons-[^./]+\.tar(\.(gz|bz2|xz))?$", filename) or \
+                               re.match(rf"^{re.escape(comp)}/dep11/.*", filename):  # Catch any other dep11 files
+                                matched = True
+                                break
+                            # Translation files: i18n/Translation-*.bz2 or .xz (modern APT uses bz2/xz, not gz)
+                            if re.match(rf"^{re.escape(comp)}/i18n/Translation-[^./]*\.(bz2|xz)$", filename):
+                                matched = True
+                                break
+                            # i18n/Index file (explicitly downloaded in old code)
+                            if re.match(rf"^{re.escape(comp)}/i18n/Index$", filename):
+                                matched = True
                                 break
                     else:
                         # Flat repository - match general patterns
-                        patterns = [
-                            (r"^Packages", r"(\.(gz|bz2|xz))?$"),
-                            (r"^Contents-", r"(\.(gz|bz2|xz))?$"),
-                            (r"^cnf/", r".*"),
-                            (r"^dep11/", r".*"),
-                        ]
-                        for pattern, ext_pattern in patterns:
-                            if re.match(pattern + ext_pattern, filename):
-                                matched = True
-                                break
+                        if re.match(r"^Packages(\.(gz|bz2|xz))?$", filename) or \
+                           re.match(r"^Contents-.*(\.(gz|bz2|xz))?$", filename) or \
+                           re.match(r"^cnf/.*", filename) or \
+                           re.match(r"^dep11/.*", filename) or \
+                           re.match(r"^i18n/.*", filename):
+                            matched = True
                     
                     # Also match Contents files that don't have component prefix
                     if not matched:
-                        if re.match(rf"^Contents-{arch}(\.(gz|bz2|xz))?$", filename) or \
+                        if re.match(rf"^Contents-{re.escape(arch)}(\.(gz|bz2|xz))?$", filename) or \
                            re.match(r"^Contents-all(\.(gz|bz2|xz))?$", filename):
                             matched = True
                     
@@ -1538,6 +1551,144 @@ class AptMirror:
         if tasks:
             await self.download_batch(tasks, "index")
             self.index_urls = index_urls
+        
+        # Download i18n/Index files explicitly (like old code does)
+        # These are needed to find translation files
+        await self._download_i18n_indexes()
+        
+        # Process translation indexes to find all translation files
+        await self._process_translation_indexes()
+
+    async def _download_i18n_indexes(self):
+        """Download i18n/Index files explicitly for each component.
+        
+        These files list available translation files. Downloaded explicitly
+        like the old Perl implementation does.
+        """
+        tasks = []
+        
+        for arch, uri, distribution, components, _ in self.binaries:
+            if not components:
+                continue
+                
+            dist_uri = f"{uri}/dists/{distribution}/"
+            
+            for component in components:
+                # Download i18n/Index file for this component
+                url = f"{dist_uri}{component}/i18n/Index"
+                canonical = self._sanitize_uri(url)
+                task = DownloadTask(url=url, canonical_path=canonical, stage="index")
+                tasks.append(task)
+                # Add to index_urls for copying
+                if not hasattr(self, 'index_urls'):
+                    self.index_urls = []
+                self.index_urls.append(url)
+        
+        if tasks:
+            await self.download_batch(tasks, "i18n-index")
+
+    async def _process_translation_indexes(self):
+        """Process i18n/Index files to find all translation files.
+        
+        Parses i18n/Index files to extract translation file listings.
+        Falls back to parsing Release file if i18n/Index is not found.
+        """
+        tasks = []
+        translation_urls = []
+        
+        for arch, uri, distribution, components, _ in self.binaries:
+            if not components:
+                continue
+                
+            dist_uri = f"{uri}/dists/{distribution}/"
+            
+            for component in components:
+                # Try to parse i18n/Index file first
+                index_path = Path(self.config.skel_path) / self._sanitize_uri(f"{dist_uri}{component}/i18n/Index")
+                
+                if index_path.exists():
+                    # Parse i18n/Index file
+                    def read_index():
+                        with open(index_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            return f.read()
+                    
+                    content = await asyncio.to_thread(read_index)
+                    translation_files = self._parse_translation_index(content, f"{dist_uri}{component}/i18n/")
+                    
+                    for filename, size in translation_files:
+                        url = f"{dist_uri}{component}/i18n/{filename}"
+                        translation_urls.append(url)
+                        canonical = self._sanitize_uri(url)
+                        task = DownloadTask(url=url, size=size, canonical_path=canonical, stage="index")
+                        tasks.append(task)
+                else:
+                    # Fall back to parsing Release file for translation files
+                    release_path = Path(self.config.skel_path) / self._sanitize_uri(f"{dist_uri}Release")
+                    if not release_path.exists():
+                        release_path = Path(self.config.skel_path) / self._sanitize_uri(f"{dist_uri}InRelease")
+                    
+                    if release_path.exists():
+                        release_data = await self._parse_release_file(release_path.parent)
+                        for file_info in release_data.get('files', []):
+                            filename = file_info['filename']
+                            # Match translation files: component/i18n/Translation-*.bz2 or .xz
+                            if re.match(rf"^{re.escape(component)}/i18n/Translation-[^./]*\.(bz2|xz)$", filename):
+                                url = f"{dist_uri}{filename}"
+                                translation_urls.append(url)
+                                canonical = self._sanitize_uri(url)
+                                size = file_info['size']
+                                hash_type = file_info.get('hash_type')
+                                hashsum = file_info.get('hashsum')
+                                
+                                if hash_type and hashsum:
+                                    self.metadata_checksums[canonical] = (hash_type, hashsum, size)
+                                    self._add_url_to_download(url, size, hash_type, hash_type, hashsum)
+                                else:
+                                    task = DownloadTask(url=url, size=size, canonical_path=canonical, stage="index")
+                                    tasks.append(task)
+        
+        if tasks:
+            await self.download_batch(tasks, "translation")
+        
+        # Add translation URLs to index_urls for copying
+        if translation_urls:
+            if not hasattr(self, 'index_urls'):
+                self.index_urls = []
+            self.index_urls.extend(translation_urls)
+
+    def _parse_translation_index(self, content: str, base_path: str) -> List[Tuple[str, int]]:
+        """Parse i18n/Index file to extract translation file listings.
+        
+        :param content: Content of i18n/Index file
+        :type content: str
+        :param base_path: Base path for translation files (unused, kept for compatibility)
+        :type base_path: str
+        :returns: List of (filename, size) tuples
+        :rtype: List[Tuple[str, int]]
+        """
+        files = []
+        current_hash = None
+        hash_strength = [HashType.SHA512, HashType.SHA256, HashType.SHA1, HashType.MD5Sum]
+        
+        for line in content.split('\n'):
+            line = line.strip()
+            
+            # Check for hash section
+            for ht in hash_strength:
+                if line == f"{ht.value}:":
+                    current_hash = ht
+                    break
+            
+            # Parse hash lines
+            if current_hash and line.startswith(' '):
+                parts = line.split()
+                if len(parts) == 3:
+                    hashsum, size, filename = parts
+                    files.append((filename, int(size)))
+            elif line and not line.startswith(' '):
+                current_hash = None
+        
+        return files
 
     async def _decompress_file(self, filepath: Path) -> Optional[Path]:
         """Decompress a file if needed"""

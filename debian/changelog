@@ -1,3 +1,17 @@
+repo-mirror (0.6.3) unstable; urgency=medium
+
+  * Fix variable expansion to handle dependencies correctly
+  * Add comprehensive logging for file downloads
+  * Fix automatic cleanup to protect files properly
+  * Fix file copying from skel to mirror for all file types
+  * Add support for translation (i18n) files
+  * Improve metadata file pattern matching for modern APT
+  * Add support for all modern APT metadata types (dep11, cnf, i18n)
+  * Handle optional files gracefully (Release.gpg 404s)
+  * Ensure comprehensive coverage of all APT repository features
+
+ -- Debian/Ubuntu Maintainers <debian-apt-mirror@lists.debian.org>  Sun, 24 Nov 2024 00:00:00 +0000
+
 repo-mirror (0.6.2) unstable; urgency=medium
 
   * Fix size verification for Release files with unknown sizes (size=0)
