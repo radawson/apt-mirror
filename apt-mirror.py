@@ -222,6 +222,7 @@ class Config:
         Expands variables in dependency order across multiple passes.
         """
         # Expand in multiple passes until no more variables remain
+        # This handles cases where variables depend on other variables
         max_passes = 16
         for pass_num in range(max_passes):
             changed = False
@@ -230,7 +231,12 @@ class Config:
             for key, value in attrs:
                 if isinstance(value, str) and "$" in value:
                     # Resolve variables using current values (which may have been expanded in previous passes)
-                    expanded = self._resolve_vars(value)
+                    # First expand base_path references
+                    expanded = value.replace("$base_path", str(self.base_path))
+                    # Then expand paths that depend on base_path
+                    expanded = expanded.replace("$mirror_path", str(self.mirror_path))
+                    expanded = expanded.replace("$skel_path", str(self.skel_path))
+                    expanded = expanded.replace("$var_path", str(self.var_path))
                     if expanded != value:
                         setattr(self, key, expanded)
                         changed = True
