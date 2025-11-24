@@ -184,8 +184,9 @@ class Config:
         """Resolve variable substitutions in config values.
         
         Recursively replaces variable references like ``$base_path`` with
-        their actual values from the config. Prevents infinite loops by
-        limiting substitution depth to 16 iterations.
+        their actual values from the config. Handles dependencies by expanding
+        in multiple passes until no more variables remain. Prevents infinite
+        loops by limiting substitution depth to 16 iterations.
         
         :param value: String potentially containing variable references
         :type value: str
@@ -193,13 +194,48 @@ class Config:
         :rtype: str
         """
         count = 16
-        while "$" in value and count > 0:
-            value = value.replace("$base_path", self.base_path)
-            value = value.replace("$mirror_path", self.mirror_path)
-            value = value.replace("$skel_path", self.skel_path)
-            value = value.replace("$var_path", self.var_path)
+        old_value = None
+        while "$" in value and count > 0 and value != old_value:
+            old_value = value
+            # Expand in dependency order: base_path first (no dependencies)
+            # Use getattr to get current value, which may have been expanded in previous passes
+            base_path_val = getattr(self, 'base_path', '')
+            mirror_path_val = getattr(self, 'mirror_path', '')
+            skel_path_val = getattr(self, 'skel_path', '')
+            var_path_val = getattr(self, 'var_path', '')
+            
+            # Expand base_path first (it has no dependencies)
+            value = value.replace("$base_path", base_path_val)
+            # Then expand paths that depend on base_path
+            value = value.replace("$mirror_path", mirror_path_val)
+            value = value.replace("$skel_path", skel_path_val)
+            value = value.replace("$var_path", var_path_val)
             count -= 1
         return value
+    
+    def _expand_all_vars(self):
+        """Expand all variables in config values after parsing.
+        
+        This method should be called after parse_config() to ensure all
+        variables set from the config file are properly expanded, including
+        those that depend on other variables (e.g., $var_path depends on $base_path).
+        Expands variables in dependency order across multiple passes.
+        """
+        # Expand in multiple passes until no more variables remain
+        max_passes = 16
+        for pass_num in range(max_passes):
+            changed = False
+            # Get all config attributes
+            attrs = list(vars(self).items())
+            for key, value in attrs:
+                if isinstance(value, str) and "$" in value:
+                    # Resolve variables using current values (which may have been expanded in previous passes)
+                    expanded = self._resolve_vars(value)
+                    if expanded != value:
+                        setattr(self, key, expanded)
+                        changed = True
+            if not changed:
+                break
 
 
 @dataclass
@@ -939,6 +975,8 @@ class AptMirror:
         try:
             await self.initialize()
             self.parse_config()
+            # Expand all variables after parsing config file (handles dependencies)
+            self.config._expand_all_vars()
 
             # Stage 1: Download Release files
             await self._download_releases()
