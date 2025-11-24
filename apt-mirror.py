@@ -767,6 +767,7 @@ class AptMirror:
                             if not local_path.exists() or not local_path.samefile(mirror_path):
                                 local_path.parent.mkdir(parents=True, exist_ok=True)
                                 shutil.copy2(mirror_path, local_path)
+                            print(f"  ✓ {task.url} (already exists, verified)")
                             if progress:
                                 # Use actual file size if task.size is unknown
                                 actual_size = mirror_path.stat().st_size
@@ -781,6 +782,7 @@ class AptMirror:
                             if not local_path.exists() or not local_path.samefile(mirror_path):
                                 local_path.parent.mkdir(parents=True, exist_ok=True)
                                 shutil.copy2(mirror_path, local_path)
+                            print(f"  ✓ {task.url} (already exists, size matches)")
                             if progress:
                                 progress.update(task.size, True)
                             return True
@@ -794,11 +796,13 @@ class AptMirror:
                         if task.hashsum and self.config.verify_checksums:
                             if await self._verify_checksum(local_path, task.hash_type, task.hashsum):
                                 # File already downloaded and verified
+                                print(f"  ✓ {task.url} (already downloaded, verified)")
                                 if progress:
                                     progress.update(task.size, True)
                                 return True
                         else:
                             # File already downloaded (size matches)
+                            print(f"  ✓ {task.url} (already downloaded, size matches)")
                             if progress:
                                 progress.update(task.size, True)
                             return True
@@ -816,6 +820,7 @@ class AptMirror:
                             if await self._verify_checksum(local_path, task.hash_type, task.hashsum):
                                 # File already downloaded and verified
                                 actual_size = stat.st_size
+                                print(f"  ✓ {task.url} (already downloaded, verified)")
                                 if progress:
                                     progress.update(actual_size, True)
                                 return True
@@ -826,6 +831,7 @@ class AptMirror:
                     headers = {}
 
                 # Download with retries
+                print(f"  → {task.url}")
                 for attempt in range(self.config.retry_attempts):
                     try:
                         async with self.session.get(
@@ -835,7 +841,18 @@ class AptMirror:
                             proxy_auth=self.proxy_auth,
                             ssl=not self.config.no_check_certificate
                         ) as response:
-                            response.raise_for_status()
+                            # Handle 404 for optional files (like Release.gpg)
+                            if response.status == 404:
+                                # Release.gpg is optional, so 404 is acceptable
+                                if "Release.gpg" in task.url:
+                                    print(f"  ⊘ {task.url} (not found, optional file)")
+                                    if progress:
+                                        progress.update(0, True)  # Count as success (file is optional)
+                                    return True
+                                else:
+                                    response.raise_for_status()
+                            else:
+                                response.raise_for_status()
 
                             # Read all data first (async)
                             data = await response.read()
@@ -861,6 +878,7 @@ class AptMirror:
                             actual_size = local_path.stat().st_size
                             bytes_for_progress = task.size if task.size > 0 else actual_size
                             
+                            print(f"  ✓ {task.url} (downloaded)")
                             if progress:
                                 progress.update(bytes_for_progress, True)
                             return True
@@ -872,7 +890,7 @@ class AptMirror:
                             raise
 
             except Exception as e:
-                print(f"\nError downloading {task.url}: {e}")
+                print(f"  ✗ {task.url}: {e}")
                 if progress:
                     progress.update(0, False)
                 return False
@@ -934,9 +952,20 @@ class AptMirror:
         # Wait for all downloads
         results = await asyncio.gather(*download_tasks, return_exceptions=True)
         
+        # Count successes and failures
+        successful = sum(1 for r in results if r is True)
+        failed = sum(1 for r in results if r is False or isinstance(r, Exception))
+        skipped = len(tasks) - successful - failed
+        
         end_time = time.time()
         print(f"\nEnd time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))}")
         progress.finish()
+        
+        # Print summary
+        if failed > 0:
+            print(f"\nSummary: {successful} succeeded, {failed} failed, {skipped} skipped")
+        elif skipped > 0:
+            print(f"\nSummary: {successful} succeeded, {skipped} skipped (already existed)")
 
         # Handle hashsum file copying
         await self._copy_hashsum_files()
