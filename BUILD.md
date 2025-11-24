@@ -89,7 +89,7 @@ The Debian package includes:
 After building, install with:
 
 ```bash
-sudo dpkg -i ../repo-mirror_0.6.1-1_all.deb
+sudo dpkg -i ../repo-mirror_0.6.2-1_all.deb
 ```
 
 If there are missing dependencies:
@@ -144,7 +144,7 @@ After building, test installation:
 
 ```bash
 # Install
-sudo dpkg -i ../repo-mirror_0.6.1-1_all.deb
+sudo dpkg -i ../repo-mirror_0.6.2-1_all.deb
 
 # Verify installation
 which apt-mirror

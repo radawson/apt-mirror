@@ -726,7 +726,10 @@ class AptMirror:
                                 local_path.parent.mkdir(parents=True, exist_ok=True)
                                 shutil.copy2(mirror_path, local_path)
                             if progress:
-                                progress.update(task.size, True)
+                                # Use actual file size if task.size is unknown
+                                actual_size = mirror_path.stat().st_size
+                                bytes_for_progress = task.size if task.size > 0 else actual_size
+                                progress.update(bytes_for_progress, True)
                             return True
                     elif task.size > 0:
                         # Fall back to size check if no checksum
@@ -743,7 +746,8 @@ class AptMirror:
                 # Check if file exists in skel_path and is correct size
                 if local_path.exists() and self.config.resume_partial_downloads:
                     stat = local_path.stat()
-                    if stat.st_size == task.size:
+                    # Only check size if we know the expected size (task.size > 0)
+                    if task.size > 0 and stat.st_size == task.size:
                         # Verify checksum if available
                         if task.hashsum and self.config.verify_checksums:
                             if await self._verify_checksum(local_path, task.hash_type, task.hashsum):
@@ -756,11 +760,24 @@ class AptMirror:
                             if progress:
                                 progress.update(task.size, True)
                             return True
-                    elif stat.st_size < task.size:
+                    elif task.size > 0 and stat.st_size < task.size:
                         # Resume partial download
                         headers = {"Range": f"bytes={stat.st_size}-"}
-                    else:
+                    elif task.size > 0 and stat.st_size > task.size:
                         # File is larger, re-download
+                        local_path.unlink()
+                        headers = {}
+                    else:
+                        # Size unknown (task.size == 0), can't verify by size
+                        # If checksum is available, verify it; otherwise re-download
+                        if task.hashsum and self.config.verify_checksums:
+                            if await self._verify_checksum(local_path, task.hash_type, task.hashsum):
+                                # File already downloaded and verified
+                                actual_size = stat.st_size
+                                if progress:
+                                    progress.update(actual_size, True)
+                                return True
+                        # No checksum or checksum failed, re-download
                         local_path.unlink()
                         headers = {}
                 else:
@@ -789,8 +806,8 @@ class AptMirror:
                             
                             await asyncio.to_thread(write_file)
 
-                            # Verify size
-                            if local_path.stat().st_size != task.size:
+                            # Verify size (skip if size is unknown, i.e., 0)
+                            if task.size > 0 and local_path.stat().st_size != task.size:
                                 raise ValueError(f"Size mismatch: expected {task.size}, got {local_path.stat().st_size}")
 
                             # Verify checksum if provided
@@ -798,8 +815,12 @@ class AptMirror:
                                 if not await self._verify_checksum(local_path, task.hash_type, task.hashsum):
                                     raise ValueError("Checksum verification failed")
 
+                            # Use actual file size for progress if task.size is unknown (0)
+                            actual_size = local_path.stat().st_size
+                            bytes_for_progress = task.size if task.size > 0 else actual_size
+                            
                             if progress:
-                                progress.update(task.size, True)
+                                progress.update(bytes_for_progress, True)
                             return True
 
                     except Exception as e:
@@ -1544,7 +1565,7 @@ class AptMirror:
         """Process Packages/Sources indexes"""
         print("Processing indexes...", end="", flush=True)
         
-        for arch, uri, distribution, components in self.binaries:
+        for arch, uri, distribution, components, _ in self.binaries:
             print("P", end="", flush=True)
             if components:
                 for component in components:
@@ -1559,7 +1580,7 @@ class AptMirror:
                             await self._process_packages_index(uri, test_path, mirror_base)
                             break
 
-        for uri, distribution, components in self.sources:
+        for uri, distribution, components, _ in self.sources:
             print("S", end="", flush=True)
             # Similar processing for Sources
             pass
@@ -1685,7 +1706,12 @@ class AptMirror:
         diff_count = 0
         
         # Load previous file versions
-        versions_file = Path(self.config.var_path) / "file_versions.json"
+        # Ensure var_path is resolved (should already be done in __post_init__, but be safe)
+        var_path_str = str(self.config.var_path)
+        if "$" in var_path_str:
+            # Variable expansion failed, try to resolve manually
+            var_path_str = var_path_str.replace("$base_path", self.config.base_path)
+        versions_file = Path(var_path_str) / "file_versions.json"
         if versions_file.exists():
             def read_versions():
                 with open(versions_file, 'r') as f:
@@ -1740,6 +1766,8 @@ class AptMirror:
         
         # Save new versions
         def write_versions():
+            # Ensure parent directory exists
+            versions_file.parent.mkdir(parents=True, exist_ok=True)
             with open(versions_file, 'w') as f:
                 json.dump(new_versions, f, indent=2)
         

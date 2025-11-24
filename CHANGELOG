@@ -1,3 +1,10 @@
+0.6.2 (2024-11-24)
+  * Fix size verification for Release files with unknown sizes (size=0)
+  * Fix unpacking error in _process_indexes for binaries and sources tuples
+  * Fix file_versions.json path resolution and ensure parent directory exists
+  * Improve error handling for files with unknown sizes during download
+  * Add fallback variable expansion for var_path in diff generation
+
 0.6.1 (2024-01-01)
   * Rename Debian package from apt-mirror to repo-mirror to avoid conflicts
     with existing apt-mirror package in Debian/Ubuntu repositories

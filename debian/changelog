@@ -1,3 +1,12 @@
+repo-mirror (0.6.2) unstable; urgency=medium
+
+  * Fix size verification for Release files with unknown sizes (size=0)
+  * Fix unpacking error in _process_indexes for binaries and sources
+  * Fix file_versions.json path resolution and directory creation
+  * Improve error handling for files with unknown sizes
+
+ -- Debian/Ubuntu Maintainers <debian-apt-mirror@lists.debian.org>  Sun, 24 Nov 2024 00:00:00 +0000
+
 repo-mirror (0.6.1) unstable; urgency=medium
 
   * Rename package from apt-mirror to repo-mirror to avoid conflicts with

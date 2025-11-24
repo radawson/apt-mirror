@@ -1,4 +1,4 @@
-VERSION := 0.6.1
+VERSION := 0.6.2
 DIST := apt-mirror.py CHANGELOG LICENSE Makefile mirror.list postmirror.sh README.md INSTALL.md FEATURES.md DEBIAN_DEPENDENCIES.md
 BASE_PATH := /var/spool/apt-mirror
 PREFIX ?= /usr/local
