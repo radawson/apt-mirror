@@ -1748,19 +1748,50 @@ class AptMirror:
     async def _copy_skel_to_mirror(self):
         """Copy files from skel to mirror directory"""
         print("Copying files from skel to mirror...")
+        copied_count = 0
         
         # Copy release and index files
         for url in getattr(self, 'release_urls', []) + getattr(self, 'index_urls', []):
             canonical = self._sanitize_uri(url)
             source = Path(self.config.skel_path) / canonical
             dest = Path(self.config.mirror_path) / canonical
-            await self._copy_file(source, dest)
+            if source.exists():
+                await self._copy_file(source, dest)
+                # Ensure copied files are in skip_clean
+                self.skip_clean.add(canonical)
+                copied_count += 1
+            elif "Release" in canonical or "InRelease" in canonical:
+                # Warn if Release files are missing - they're critical
+                print(f"Warning: Release file not found in skel: {canonical}")
             
             # Handle hashsum files
             if canonical in self.hashsum_to_files:
                 for target_file in self.hashsum_to_files[canonical]:
                     target_dest = Path(self.config.mirror_path) / target_file
-                    await self._copy_file(source, target_dest)
+                    if source.exists():
+                        await self._copy_file(source, target_dest)
+                        self.skip_clean.add(target_file)
+        
+        # Copy all package files from download queue
+        for task in self.download_queue:
+            if task.canonical_path:
+                source = Path(self.config.skel_path) / task.canonical_path
+                dest = Path(self.config.mirror_path) / task.canonical_path
+                if source.exists():
+                    await self._copy_file(source, dest)
+                    # Ensure copied files are in skip_clean
+                    self.skip_clean.add(task.canonical_path)
+                    copied_count += 1
+            
+            # Copy hashsum files for packages
+            if task.hash_path:
+                source = Path(self.config.skel_path) / task.hash_path
+                dest = Path(self.config.mirror_path) / task.hash_path
+                if source.exists():
+                    await self._copy_file(source, dest)
+                    self.skip_clean.add(task.hash_path)
+        
+        print(f"Copied {copied_count} files from skel to mirror.")
 
     async def _generate_diffs(self):
         """Generate diffs for changed files.
@@ -2025,10 +2056,43 @@ class AptMirror:
         
         WARNING: This permanently deletes files. Use with extreme caution.
         Only files in directories specified by "clean" directives and not
-        in skip_clean are removed.
+        in skip_clean are removed. Files that exist in skel (just downloaded)
+        are also protected.
         """
         print("Performing automatic cleanup...")
         removed_count = 0
+        
+        # Build set of files that should be kept:
+        # 1. Files in skip_clean (current run)
+        # 2. Files that exist in skel (just downloaded, may not be in skip_clean yet)
+        # 3. Files in download queue
+        files_to_keep = set(self.skip_clean)
+        
+        # Add files from download queue
+        for task in self.download_queue:
+            if task.canonical_path:
+                files_to_keep.add(task.canonical_path)
+            if task.hash_path:
+                files_to_keep.add(task.hash_path)
+        
+        # Add files that exist in skel (they were just downloaded)
+        def collect_skel_files():
+            skel_files = set()
+            skel_path = Path(self.config.skel_path)
+            if skel_path.exists():
+                for root, dirs, filenames in os.walk(skel_path):
+                    for filename in filenames:
+                        file_path = Path(root) / filename
+                        try:
+                            rel_path = file_path.relative_to(skel_path)
+                            canonical = str(rel_path).replace('\\', '/')
+                            skel_files.add(canonical)
+                        except ValueError:
+                            continue
+            return skel_files
+        
+        skel_files = await asyncio.to_thread(collect_skel_files)
+        files_to_keep.update(skel_files)
         
         for clean_dir in self.clean_dirs:
             clean_path = Path(self.config.mirror_path) / clean_dir
@@ -2046,8 +2110,8 @@ class AptMirror:
                             rel_path = file_path.relative_to(Path(self.config.mirror_path))
                             canonical = str(rel_path).replace('\\', '/')
                             
-                            # Skip if file is in skip_clean
-                            if canonical not in self.skip_clean:
+                            # Skip if file should be kept
+                            if canonical not in files_to_keep:
                                 try:
                                     file_path.unlink()
                                     count += 1
